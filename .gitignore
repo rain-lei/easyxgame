@@ -1,0 +1,52 @@
+# Local agent/runtime state
+.agents/
+.codex/
+.firecrawl/
+
+# Visual Studio caches and generated output
+.vs/
+**/.vs/
+**/build/
+**/Debug/
+**/Release/
+**/x64/
+**/Win32/
+*.VC.db
+*.VC.db-shm
+*.VC.db-wal
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.ipch
+*.pch
+*.obj
+*.pdb
+*.ilk
+*.idb
+*.tlog
+*.lastbuildstate
+*.log
+
+# Executables and packaged deliverables are rebuilt locally
+*.exe
+*.dll
+*.zip
+*.rar
+*.7z
+
+# Teacher-provided installers are not project source
+面向对象实验参考/Software/
+EasyxGame参考/Software/
+
+# Temporary/editor files
+~$*
+*.tmp
+*.temp
+*.bak
+*.swp
+Thumbs.db
+Desktop.ini
+
+# Generated chroma-key intermediate; keep the transparent final sprite
+**/assets/sprites/*_source.png

@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32"><Configuration>Debug</Configuration><Platform>Win32</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32"><Configuration>Release</Configuration><Platform>Win32</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64"><Configuration>Debug</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{76A31F18-9D24-4A76-B043-A8C97F713A30}</ProjectGuid>
+    <RootNamespace>MoeBubbleBattle</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)'=='Debug'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType><UseDebugLibraries>true</UseDebugLibraries><PlatformToolset>v143</PlatformToolset><CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)'=='Release'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType><UseDebugLibraries>false</UseDebugLibraries><PlatformToolset>v143</PlatformToolset><WholeProgramOptimization>true</WholeProgramOptimization><CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings" /><ImportGroup Label="Shared" />
+  <ImportGroup Label="PropertySheets"><Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" /></ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup><OutDir>$(SolutionDir)build\$(Platform)\$(Configuration)\</OutDir><IntDir>$(SolutionDir)build\obj\$(ProjectName)\$(Platform)\$(Configuration)\</IntDir><TargetName>萌泡大作战</TargetName></PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
+    <ClCompile><WarningLevel>Level4</WarningLevel><SDLCheck>true</SDLCheck><PreprocessorDefinitions>_DEBUG;UNICODE;_UNICODE;NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions><ConformanceMode>true</ConformanceMode><LanguageStandard>stdcpp17</LanguageStandard><AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions></ClCompile>
+    <Link><SubSystem>Windows</SubSystem><GenerateDebugInformation>true</GenerateDebugInformation></Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
+    <ClCompile><WarningLevel>Level4</WarningLevel><FunctionLevelLinking>true</FunctionLevelLinking><IntrinsicFunctions>true</IntrinsicFunctions><SDLCheck>true</SDLCheck><PreprocessorDefinitions>NDEBUG;UNICODE;_UNICODE;NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions><ConformanceMode>true</ConformanceMode><LanguageStandard>stdcpp17</LanguageStandard><AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions></ClCompile>
+    <Link><SubSystem>Windows</SubSystem><EnableCOMDATFolding>true</EnableCOMDATFolding><OptimizeReferences>true</OptimizeReferences><GenerateDebugInformation>true</GenerateDebugInformation></Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\GameObjects.cpp" />
+    <ClCompile Include="src\MoeBubbleGame.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\GameTypes.h" />
+    <ClInclude Include="src\GameObjects.h" />
+    <ClInclude Include="src\MoeBubbleGame.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="DESIGN.md" />
+    <None Include="UI_DESIGN.md" />
+    <None Include="AUDIO_DESIGN.md" />
+    <None Include="README.md" />
+    <None Include="TEST_PLAN.md" />
+    <None Include=".gitignore" />
+    <None Include="assets\concepts\chibi_character_concepts.png" />
+    <None Include="assets\sprites\player_walk_sheet.png" />
+    <None Include="assets\sprites\player_walk_sheet_source.png" />
+    <None Include="assets\ui\ui_overview_v1.png" />
+    <None Include="assets\audio\bgm_menu.wav" />
+    <None Include="assets\audio\bgm_game.wav" />
+    <None Include="assets\audio\sfx_menu_move.wav" />
+    <None Include="assets\audio\sfx_menu_confirm.wav" />
+    <None Include="assets\audio\sfx_bubble_place.wav" />
+    <None Include="assets\audio\sfx_bubble_explode.wav" />
+    <None Include="assets\audio\sfx_power_up.wav" />
+    <None Include="assets\audio\sfx_hit.wav" />
+    <None Include="assets\audio\sfx_level_clear.wav" />
+    <None Include="tools\generate_audio.py" />
+  </ItemGroup>
+  <ItemGroup>
+    <AudioAsset Include="assets\audio\*.wav" />
+    <ImageAsset Include="assets\concepts\*.png" />
+    <SpriteAsset Include="assets\sprites\player_walk_sheet.png" />
+  </ItemGroup>
+  <Target Name="CopyAudioAssets" AfterTargets="Build">
+    <MakeDir Directories="$(OutDir)assets\audio" />
+    <Copy SourceFiles="@(AudioAsset)" DestinationFolder="$(OutDir)assets\audio" SkipUnchangedFiles="true" />
+    <MakeDir Directories="$(OutDir)assets\concepts" />
+    <Copy SourceFiles="@(ImageAsset)" DestinationFolder="$(OutDir)assets\concepts" SkipUnchangedFiles="true" />
+    <MakeDir Directories="$(OutDir)assets\sprites" />
+    <Copy SourceFiles="@(SpriteAsset)" DestinationFolder="$(OutDir)assets\sprites" SkipUnchangedFiles="true" />
+  </Target>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets" />
+</Project>
