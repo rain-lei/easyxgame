@@ -47,6 +47,8 @@ namespace
             return;
         }
 
+        // 源图使用四字节 BGRA，EasyX 目标缓冲采用相同的低三字节颜色布局。
+        // 最近邻采样足以处理像素尺寸固定的 UI/精灵，并避免运行时创建临时 IMAGE。
         const int canvasWidth = getwidth();
         const int canvasHeight = getheight();
         const int imageWidth = image.getwidth();
@@ -143,6 +145,8 @@ void GameMap::generate(int level)
                 || row == GameConfig::MapRows - 1 || column == GameConfig::MapColumns - 1;
             const bool pillar = row % 2 == 0 && column % 2 == 0;
 
+            // 外圈与偶数交点形成不可破坏骨架；出生保留区跳过木箱随机，
+            // 使玩家和各类敌人开局至少拥有两个可选择方向。
             if (boundary || pillar)
             {
                 setTile(cell, TileType::SolidWall);
@@ -263,6 +267,8 @@ RectF Character::bounds() const
 bool Character::canOccupy(const RectF& candidate, const GameMap& map,
     const std::vector<WaterBubble>& bubbles) const
 {
+    // 地图先进行固定格阻挡，动态水泡再补充临时障碍。两者都只接收候选碰撞盒，
+    // 检测失败时不会修改 position_，移动函数可以安全尝试另一条轴。
     if (!map.isRectWalkable(candidate))
     {
         return false;
@@ -282,7 +288,8 @@ bool Character::move(const Vec2& direction, float deltaTime, const GameMap& map,
         return false;
     }
 
-    // 横、纵轴分开尝试，某一轴被墙阻挡时另一轴仍可滑动，转角手感更自然。
+    // 横、纵轴分开尝试，某一轴被墙阻挡时另一轴仍可滑动。
+    // 这种“检测后提交”方式还避免对角移动碰墙后再回滚造成的画面抖动。
     bool moved = false;
     const Vec2 delta = unit * (speed_ * deltaTime);
     Vec2 candidatePosition = position_;
@@ -364,6 +371,8 @@ void Player::drawSpriteFrame() const
         frame = walkCycle[static_cast<int>(walkAnimationTime_ * 8.0f) % walkCycle.size()];
     }
 
+    // 行由角色外观决定，列由步态阶段决定；裁切坐标与绘制尺寸彼此独立，
+    // 跨步帧可以轻微缩小而不改变原始图集。
     const int row = std::clamp(static_cast<int>(style_), 0, SpriteRows - 1);
     const int drawSize = frame == 1 ? SpriteCellSize : SpriteCellSize - 4;
     const int recenter = frame == 0 ? 1 : (frame == 2 ? -1 : 0);
@@ -647,6 +656,8 @@ std::vector<Vec2> Enemy::availableDirections(const GameMap& map,
         Vec2{ 1.0f, 0.0f }, Vec2{ -1.0f, 0.0f },
         Vec2{ 0.0f, 1.0f }, Vec2{ 0.0f, -1.0f }
     };
+    // 这里只收集几何上可走的方向，危险度和追踪倾向留给派生类评分，
+    // 从而让巡逻、追踪和首领共享碰撞规则但保留各自决策方式。
     std::vector<Vec2> result;
     const GridPos current = cell();
     for (const Vec2& direction : directions)
@@ -997,6 +1008,8 @@ void ItemIconAtlas::draw(PowerUpType type, int centerX, int centerY, int size) c
         return;
     }
     const int column = std::clamp(static_cast<int>(type), 0, 3);
+    // 图集按“范围、容量、速度、护盾”横向排列；类型枚举值直接映射列号，
+    // 同一裁切函数可在地图拾取物和不同尺寸的界面卡片中复用。
     drawAlphaSubImage(atlas_, column * CellSize, 0, CellSize, CellSize,
         centerX - size / 2, centerY - size / 2, size, size);
 }

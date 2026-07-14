@@ -35,8 +35,9 @@ namespace GameConfig
     constexpr int HudWidth = 228;
     constexpr int HudHeight = 672;
     constexpr int TotalLevels = 3;
-    // 课程演示时只需修改这里，就能集中调整第三关首领强度。
-    constexpr int BossMaxHealth = 10;
+    // 首领生命集中在配置层，调节难度时不需要进入敌人实现修改状态逻辑。
+    // Boss 的受击冷却会让一次水泡爆炸只结算一段伤害；3 点生命对应三次有效爆炸。
+    constexpr int BossMaxHealth = 3;
     constexpr int MaxPlayerLives = 4;
     constexpr float Pi = 3.14159265358979323846f;
 }
@@ -198,7 +199,8 @@ struct CharacterProfile
     const wchar_t* role = L"全能队员";
 };
 
-// 单一配置入口便于课堂演示时平衡生命、速度、容量、威力和护盾。
+// 单一配置入口统一平衡生命、速度、容量、威力和护盾。
+// Player 只读取配置结果，因此新增外观或调整数值不会引入角色类型分支。
 inline CharacterProfile characterProfile(CharacterStyle style)
 {
     switch (style)

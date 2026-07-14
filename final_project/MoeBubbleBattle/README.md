@@ -85,4 +85,4 @@ MoeBubbleBattle
 
 提交前按照课程要求删除 `build`、`.vs` 等生成目录。保留 `assets`，否则程序没有音乐和设计资料。
 
-第三关首领血量可在 `src/GameTypes.h` 中修改 `GameConfig::BossMaxHealth`；四名角色的初始生命、速度、水泡数量、威力和护盾集中在同文件的 `characterProfile` 中。
+第三关首领默认 3 点生命，可在 `src/GameTypes.h` 中修改 `GameConfig::BossMaxHealth`；四名角色的初始生命、速度、水泡数量、威力和护盾集中在同文件的 `characterProfile` 中。

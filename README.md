@@ -37,7 +37,7 @@ python tools\package_submission.py `
 
 脚本会生成 `dist/序号-学号-姓名-萌泡大作战/` 和外部的
 `dist/序号-学号-姓名.zip`，自动排除 `.vs`、`x64`、`build`、编译中间文件，
-并调用本机 Microsoft Word 将报告转换为老师要求的真正 Word 97-2003
+并调用本机 Microsoft Word 将报告转换为真正的 Word 97-2003
 `程序设计课程实践报告-姓名.doc`。如需同时保留新版 Word 备份，可添加
 `--keep-docx`。最终提交前仍需从 ZIP 解压后试运行程序、播放视频并检查
 `.doc` 打印预览。

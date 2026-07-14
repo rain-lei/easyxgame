@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a clean, named course-submission ZIP after the personal video exists."""
+"""Create a clean, named submission ZIP after the personal video exists."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def nonempty(value: str) -> str:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="生成课程提交目录和 ZIP；必须先准备本人讲解的 FLV 视频。"
+        description="生成提交目录和 ZIP；打包前需准备本人讲解的 FLV 视频。"
     )
     parser.add_argument("--sequence", required=True, type=nonempty, help="序号")
     parser.add_argument("--student-id", required=True, type=nonempty, help="学号")
@@ -45,7 +45,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--keep-docx",
         action="store_true",
-        help="除老师要求的 .doc 外，额外保留一份同名 .docx 备份",
+        help="除 Word 97-2003 .doc 外，额外保留一份同名 .docx 备份",
     )
     parser.add_argument("--force", action="store_true", help="覆盖 dist 中同名的旧提交目录和 ZIP")
     return parser.parse_args()
@@ -99,7 +99,7 @@ def convert_docx_to_doc(source: Path, destination: Path) -> None:
     """Use Microsoft Word to create a real Word 97-2003 .doc file."""
     cscript = shutil.which("cscript.exe") or shutil.which("cscript")
     if cscript is None:
-        raise RuntimeError("未找到 cscript，无法按老师要求生成真正的 .doc 报告")
+        raise RuntimeError("未找到 cscript，无法生成真正的 Word 97-2003 .doc 报告")
     if not WORD_CONVERTER.is_file():
         raise FileNotFoundError(WORD_CONVERTER)
 
@@ -158,7 +158,7 @@ def main() -> int:
     if not video.is_file():
         raise FileNotFoundError(video)
     if video.suffix.casefold() != ".flv":
-        raise ValueError("视频必须先按课程要求转换为 .flv")
+        raise ValueError("视频格式必须为 .flv")
 
     folder_name = f"{args.sequence}-{args.student_id}-{args.student_name}-萌泡大作战"
     archive_name = f"{args.sequence}-{args.student_id}-{args.student_name}"

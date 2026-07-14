@@ -109,6 +109,8 @@ namespace
 
     void drawSmallIcon(const ItemIconAtlas& icons, int x, int y, PowerUpType type, int value)
     {
+        // 角色卡和说明页空间较紧，保留图标与角标叠放的紧凑版本；
+        // 游戏 HUD 使用下方的状态卡版本，避免两种使用场景互相牵制尺寸。
         COLORREF color = Palette::Aqua;
         wchar_t symbol[2] = L"B";
         switch (type)
@@ -137,6 +139,71 @@ namespace
         fillroundrect(x + 26, y + 27, x + 52, y + 48, 8, 8);
         drawCenteredText(valueText, x + 39, y + (value >= 100 ? 31 : 29),
             value >= 100 ? 11 : 14, Palette::Ink, true);
+    }
+
+    // HUD 使用独立的等宽状态卡。图标、中文名称和数值各占一个垂直区域，
+    // 四张卡可以稳定排在 228 像素侧栏内，属性值变化时不会挤压相邻内容。
+    void drawHudStatusCard(const ItemIconAtlas& icons, int x, int y,
+        PowerUpType type, int value)
+    {
+        constexpr int CardWidth = 42;
+        constexpr int CardHeight = 88;
+        constexpr int IconSize = 34;
+
+        const wchar_t* label = L"容量";
+        wchar_t fallbackSymbol[2] = L"B";
+        COLORREF accent = Palette::Aqua;
+        switch (type)
+        {
+        case PowerUpType::BlastRange:
+            label = L"范围";
+            fallbackSymbol[0] = L'R';
+            accent = Palette::Coral;
+            break;
+        case PowerUpType::BubbleCapacity:
+            label = L"容量";
+            fallbackSymbol[0] = L'B';
+            accent = Palette::Aqua;
+            break;
+        case PowerUpType::Speed:
+            label = L"速度";
+            fallbackSymbol[0] = L'S';
+            accent = Palette::Honey;
+            break;
+        case PowerUpType::Shield:
+            label = L"护盾";
+            fallbackSymbol[0] = L'盾';
+            accent = Palette::Mint;
+            break;
+        }
+
+        // 边框沿用属性主题色，浅色底板保证透明水彩图标在不同场景下都有对比度。
+        setlinecolor(accent);
+        setfillcolor(RGB(255, 251, 239));
+        fillroundrect(x, y, x + CardWidth, y + CardHeight, 10, 10);
+
+        if (icons.loaded())
+        {
+            icons.draw(type, x + CardWidth / 2, y + 22, IconSize);
+        }
+        else
+        {
+            setfillcolor(accent);
+            solidcircle(x + CardWidth / 2, y + 22, 15);
+            drawCenteredText(fallbackSymbol, x + CardWidth / 2, y + 13,
+                15, Palette::Ink, true);
+        }
+
+        drawCenteredText(label, x + CardWidth / 2, y + 43, 13, Palette::Ink, true);
+
+        // 数值固定在底部胶囊中；三位数只缩小字体，不改变卡片几何尺寸，
+        // 因而容量、范围、速度和护盾始终保持相同的视觉重量。
+        setlinecolor(accent);
+        setfillcolor(RGB(244, 249, 246));
+        fillroundrect(x + 4, y + 64, x + CardWidth - 4, y + 84, 7, 7);
+        drawCenteredText(std::to_wstring(value), x + CardWidth / 2,
+            y + (value >= 100 ? 67 : 65), value >= 100 ? 11 : 14,
+            Palette::Ink, true);
     }
 
     std::wstring formatTime(float seconds)
@@ -391,7 +458,8 @@ void MoeBubbleGame::openWindow()
     ImmAssociateContext(GetHWnd(), HIMC{});
     setbkcolor(Palette::Paper);
     setbkmode(TRANSPARENT);
-    // 图片同样按 EXE 相对路径加载，符合课程“不能写死 C:/D:/”的要求。
+    // 图片与音频都从 EXE 目录向下定位；复制整个输出目录后仍能直接运行，
+    // 也避免开发机盘符或工程位置进入资源路径。
     wchar_t executablePath[MAX_PATH]{};
     GetModuleFileNameW(nullptr, executablePath, MAX_PATH);
     const std::filesystem::path portraitPath = std::filesystem::path(executablePath).parent_path()
@@ -1410,10 +1478,17 @@ void MoeBubbleGame::drawHud() const
     }
 
     drawTextAt(L"强化状态", 730, 274, 18, Palette::Ink, true);
-    drawSmallIcon(itemIcons_, 730, 306, PowerUpType::BubbleCapacity, player_.bubbleCapacity());
-    drawSmallIcon(itemIcons_, 794, 306, PowerUpType::BlastRange, player_.blastRange());
-    drawSmallIcon(itemIcons_, 858, 306, PowerUpType::Speed, player_.movementSpeed());
-    drawSmallIcon(itemIcons_, 730, 364, PowerUpType::Shield, player_.shieldCharges());
+    constexpr int StatusCardLeft = 732;
+    constexpr int StatusCardTop = 304;
+    constexpr int StatusCardStep = 46;
+    drawHudStatusCard(itemIcons_, StatusCardLeft, StatusCardTop,
+        PowerUpType::BubbleCapacity, player_.bubbleCapacity());
+    drawHudStatusCard(itemIcons_, StatusCardLeft + StatusCardStep, StatusCardTop,
+        PowerUpType::BlastRange, player_.blastRange());
+    drawHudStatusCard(itemIcons_, StatusCardLeft + StatusCardStep * 2, StatusCardTop,
+        PowerUpType::Speed, player_.movementSpeed());
+    drawHudStatusCard(itemIcons_, StatusCardLeft + StatusCardStep * 3, StatusCardTop,
+        PowerUpType::Shield, player_.shieldCharges());
 
     drawPanel(730, 432, 914, 508, RGB(239, 249, 250), 14, false);
     drawCenteredText(L"本关目标", 822, 442, 17, Palette::AquaDark, true);

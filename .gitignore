@@ -52,3 +52,7 @@ Desktop.ini
 # Generated chroma-key intermediate; keep the transparent final sprite
 **/assets/sprites/*_source.png
 **/assets/ui/*_source.png
+
+# Filled reports contain personal information and stay in the local submission archive
+final_project/MoeBubbleBattle/report/程序设计课程实践报告-*.doc
+final_project/MoeBubbleBattle/report/程序设计课程实践报告-*.docx
