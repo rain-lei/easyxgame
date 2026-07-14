@@ -5,6 +5,7 @@
 
 #pragma comment(lib, "imm32.lib")
 
+// 抽象图形接口：应用层只依赖 draw，不依赖具体形状实现。
 class Shape
 {
 public:
@@ -12,6 +13,7 @@ public:
     virtual void draw(int centerX, int centerY, int size, COLORREF color) const = 0;
 };
 
+// 正方形和圆形分别重写 draw，体现继承与运行时多态。
 class Square final : public Shape
 {
 public:
@@ -36,6 +38,7 @@ public:
     }
 };
 
+// 应用类封装 EasyX 窗口、消息分发、当前颜色和图形对象。
 class DrawingApp
 {
 public:
@@ -99,6 +102,7 @@ private:
 
     void handleMessage(const ExMessage& message)
     {
+        // 鼠标左右键选择不同派生对象，键盘消息只负责修改应用状态。
         if (message.message == WM_LBUTTONDOWN)
         {
             drawShape(square_, message);
@@ -115,6 +119,7 @@ private:
 
     void drawShape(const Shape& shape, const ExMessage& message) const
     {
+        // 通过 Shape 引用调用虚函数，运行时决定绘制正方形还是圆形。
         int size = message.ctrl ? controlSize : normalSize;
         shape.draw(message.x, message.y, size, drawColor_);
         FlushBatchDraw();

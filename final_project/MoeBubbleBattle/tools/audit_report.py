@@ -84,6 +84,8 @@ def parse_args() -> argparse.Namespace:
                         default=workspace / "面向对象方法程序设计与实践-报告模版.docx")
     parser.add_argument("--report", type=Path,
                         default=project / "report" / "程序设计课程实践报告-待填写姓名.docx")
+    parser.add_argument("--expect-filled", action="store_true",
+                        help="require all cover/material placeholders to be filled")
     return parser.parse_args()
 
 
@@ -170,7 +172,9 @@ def main() -> int:
         errors.append("w:updateFields is missing")
 
     placeholders = sorted(set(re.findall(r"\[[^\]]+\]", full_text)))
-    expected_placeholders = ["[待填写]", "[请填写任课教师]", "[请填写姓名]", "[请填写学号]", "[请填写序号]"]
+    expected_placeholders = [] if args.expect_filled else [
+        "[待填写]", "[请填写任课教师]", "[请填写姓名]", "[请填写学号]", "[请填写序号]"
+    ]
     if placeholders != expected_placeholders:
         errors.append(f"unexpected placeholders: {placeholders}")
 

@@ -1,6 +1,8 @@
 #include <graphics.h>
 #include <string>
 
+// 练习一：用一个类封装棋盘尺寸、绘制步骤和窗口生命周期。
+// 修改 cellSize 或 margin 即可整体调整布局，不需要逐条修改网格坐标。
 class GobangBoard
 {
 public:
@@ -14,6 +16,7 @@ public:
 
     void captureReportScreenshot() const
     {
+        // 报告模式复用正式绘制函数保存证据，不改变正常交互入口。
         openWindow();
         draw();
         saveimage(L"report_screenshot.png");
@@ -46,6 +49,7 @@ private:
         setlinecolor(RGB(70, 45, 18));
         setlinestyle(PS_SOLID, 2);
 
+        // 一次循环同时绘制同序号的横线和竖线，避免硬编码 30 条线段。
         for (int index = 0; index < lineCount; ++index)
         {
             int offset = margin + index * cellSize;
@@ -56,6 +60,7 @@ private:
 
     void drawStarPoints() const
     {
+        // 三个索引两两组合得到九个标准星位。
         static constexpr int starPoints[] = { 3, 7, 11 };
         setfillcolor(RGB(40, 25, 12));
 

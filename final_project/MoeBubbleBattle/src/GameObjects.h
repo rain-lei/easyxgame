@@ -6,6 +6,8 @@
 
 class WaterBubble;
 
+// 封装固定大小的 15×13 地图、随机生成、绘制与碰撞查询。
+// tiles_ 保持私有，外部只能通过语义化方法读取或破坏木箱。
 class GameMap
 {
 public:
@@ -28,6 +30,7 @@ private:
     bool isReservedSpawnCell(const GridPos& cell) const;
 };
 
+// 所有可更新、可绘制对象的抽象基类，也是运行时多态的共同接口。
 class GameObject
 {
 public:
@@ -43,6 +46,7 @@ protected:
     bool active_ = true;
 };
 
+// Player 与 Enemy 的共同父类，复用位置、速度、碰撞盒和分轴移动逻辑。
 class Character : public GameObject
 {
 public:
@@ -65,6 +69,7 @@ protected:
         const std::vector<WaterBubble>& bubbles) const;
 };
 
+// 玩家对象封装输入移动、生命、角色属性、水泡计数、强化与行走动画。
 class Player final : public Character
 {
 public:
@@ -95,15 +100,18 @@ public:
     bool invulnerable() const { return invulnerableTimer_ > 0.0f; }
 
 private:
+    // 精灵图为 4 行角色 × 3 列步态，运行时按角色和动画帧裁切。
     static constexpr int SpriteColumns = 3;
     static constexpr int SpriteRows = 4;
     static constexpr int SpriteCellSize = 72;
 
+    // 外观和运动状态。
     CharacterStyle style_ = CharacterStyle::Bear;
     Vec2 facing_{ 0.0f, 1.0f };
     bool walking_ = false;
     IMAGE spriteSheet_;
     bool spriteSheetLoaded_ = false;
+    // 战斗数值全部私有，通过受伤/强化/放泡行为维护上限与不变量。
     int lives_ = 3;
     int bubbleCapacity_ = 1;
     int activeBubbles_ = 0;
@@ -118,6 +126,7 @@ private:
     void drawSpriteFrame() const;
 };
 
+// 敌人抽象基类负责公共移动与避险，派生类只重写决策、绘制或受击差异。
 class Enemy : public Character
 {
 public:
@@ -140,6 +149,7 @@ protected:
     float decisionTimer_ = 0.0f;
     float animationTime_ = 0.0f;
 
+    // 纯虚函数是敌人多态的核心：主循环不需要判断实际派生类型。
     virtual Vec2 chooseDirection(const GameMap& map,
         const std::vector<WaterBubble>& bubbles,
         const std::vector<GridPos>& dangerousCells,
@@ -151,6 +161,7 @@ protected:
         const std::vector<GridPos>& dangerousCells) const;
 };
 
+// 巡逻敌人：从安全可走方向中随机选择，行为不直接追踪玩家。
 class PatrolEnemy final : public Enemy
 {
 public:
@@ -165,6 +176,7 @@ protected:
         std::mt19937& randomEngine) override;
 };
 
+// 追踪敌人：在安全方向中优先选择能缩短与玩家距离的方向。
 class HunterEnemy final : public Enemy
 {
 public:
@@ -179,6 +191,7 @@ protected:
         std::mt19937& randomEngine) override;
 };
 
+// 第三关首领：在 Enemy 接口上扩展多血量、受击冷却和更高得分。
 class BossEnemy final : public Enemy
 {
 public:
@@ -205,6 +218,7 @@ private:
     float hitCooldown_ = 0.0f;
 };
 
+// 水泡保存所有者、威力和倒计时；刚放置时允许所有者从本格离开一次。
 class WaterBubble final : public GameObject
 {
 public:
@@ -232,6 +246,7 @@ private:
     bool ownerMayPass_ = true;
 };
 
+// 单个网格水浪片段，短暂存在并参与玩家/敌人的碰撞检测。
 class WaterWave final : public GameObject
 {
 public:
@@ -247,6 +262,7 @@ private:
     float lifetime_ = 0.52f;
 };
 
+// 四格透明道具图集，只加载一次并在地图、说明页和 HUD 中复用。
 class ItemIconAtlas
 {
 public:
@@ -260,6 +276,7 @@ private:
     bool loaded_ = false;
 };
 
+// 有限生命周期的强化道具，具体效果由 Player::applyPowerUp 统一处理。
 class PowerUp final : public GameObject
 {
 public:
@@ -278,6 +295,7 @@ private:
     const ItemIconAtlas* icons_ = nullptr;
 };
 
+// 轻量粒子对象，用速度和剩余寿命生成爆炸、拾取与结算反馈。
 class StarParticle final : public GameObject
 {
 public:

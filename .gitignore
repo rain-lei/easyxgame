@@ -34,6 +34,7 @@
 *.zip
 *.rar
 *.7z
+/dist/
 
 # Teacher-provided installers are not project source
 面向对象实验参考/Software/

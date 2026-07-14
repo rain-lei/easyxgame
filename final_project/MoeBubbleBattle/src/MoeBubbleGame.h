@@ -4,6 +4,7 @@
 
 #include <filesystem>
 
+// 同一角色原画按使用场景预裁切成三种尺寸。
 enum class PortraitSize
 {
     Large,
@@ -11,6 +12,7 @@ enum class PortraitSize
     Hud
 };
 
+// 角色原画图集封装，避免菜单、角色卡和 HUD 重复加载图片。
 class PortraitAtlas
 {
 public:
@@ -29,6 +31,7 @@ private:
     const IMAGE* imageFor(PortraitSize size) const;
 };
 
+// MCI 音频资源的 RAII 管理器，统一背景音乐状态与短音效播放。
 class AudioManager
 {
 public:
@@ -58,6 +61,7 @@ private:
     std::filesystem::path assetPath(const wchar_t* filename) const;
 };
 
+// 跨关卡累计的演示统计，结算页和报告截图使用同一份数据。
 struct GameStatistics
 {
     int cratesDestroyed = 0;
@@ -74,6 +78,8 @@ struct GameStatistics
     }
 };
 
+// 游戏组合根：拥有场景状态、地图和全部对象容器，负责主循环的统一调度。
+// 具体对象仍在各自类中维护状态，避免把所有逻辑堆在入口函数里。
 class MoeBubbleGame
 {
 public:
@@ -81,22 +87,27 @@ public:
     ~MoeBubbleGame();
 
     int run();
+    // 复用正式 render() 生成确定性的报告证据，不改变正常启动流程。
     int captureReportScreenshots(const std::filesystem::path& outputDirectory);
 
 private:
+    // 长生命周期服务和核心实体。
     InputManager input_;
     AudioManager audio_;
     PortraitAtlas portraits_;
     ItemIconAtlas itemIcons_;
     GameMap map_;
     Player player_;
+    // 动态对象使用 STL 容器；Enemy 通过基类智能指针实现异构多态和 RAII。
     std::vector<std::unique_ptr<Enemy>> enemies_;
     std::vector<WaterBubble> bubbles_;
     std::vector<WaterWave> waves_;
     std::vector<PowerUp> powerUps_;
     std::vector<StarParticle> particles_;
+    // 固定种子使地图、掉落和 AI 决策可复现，便于测试和录制。
     std::mt19937 randomEngine_{ 20260713u };
 
+    // 场景状态机及各界面的当前选择。
     SceneState scene_ = SceneState::MainMenu;
     SceneState instructionReturnScene_ = SceneState::MainMenu;
     SceneState exitReturnScene_ = SceneState::MainMenu;
@@ -111,6 +122,7 @@ private:
     int pauseIndex_ = 0;
     int resultIndex_ = 0;
     int exitChoice_ = 0;
+    // 关卡、分数和重开快照；重开本关时回滚到关卡起点统计。
     int level_ = 1;
     int score_ = 0;
     int highScore_ = 0;
@@ -122,6 +134,7 @@ private:
     float effectCooldown_ = 0.0f;
     GameStatistics statistics_{};
 
+    // 主循环基础阶段：输入 → 更新 → 清理 → 绘制。
     void openWindow();
     void processWindowMessages();
     void processInput();
@@ -129,6 +142,7 @@ private:
     void render() const;
     void transitionTo(SceneState state);
 
+    // 各场景分别处理键盘和鼠标，避免一个超长输入分支。
     void handleMainMenuInput();
     void handleCharacterSelectInput();
     void handleInstructionsInput();
@@ -137,6 +151,7 @@ private:
     void handleResultInput();
     void handleExitConfirmInput();
 
+    // 玩法更新与关卡生命周期。
     void startNewGame();
     void setupLevel(int level, bool restoreLevelScore = false);
     void restartCurrentLevel();
@@ -153,6 +168,7 @@ private:
     void finishGame(bool victory);
     void cleanupInactiveObjects();
 
+    // 各场景绘制函数只读取状态，不在绘制阶段修改游戏数据。
     void drawBackground() const;
     void drawMainMenu() const;
     void drawCharacterSelect() const;

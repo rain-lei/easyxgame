@@ -35,6 +35,7 @@ namespace
         fillpolygon(points, 10);
     }
 
+    // EasyX 的 putimage 不负责 PNG Alpha 混合，因此在缓冲区中逐像素完成透明合成。
     void drawAlphaSubImage(const IMAGE& image, int sourceX, int sourceY,
         int sourceWidth, int sourceHeight, int destinationX, int destinationY,
         int destinationWidth, int destinationHeight)
@@ -93,6 +94,8 @@ namespace
     }
 }
 
+// ---------------- 地图与公共角色移动 ----------------
+
 GameMap::GameMap()
 {
     tiles_.fill(TileType::Floor);
@@ -126,6 +129,7 @@ bool GameMap::isReservedSpawnCell(const GridPos& cell) const
 void GameMap::generate(int level)
 {
     tiles_.fill(TileType::Floor);
+    // 固定种子叠加关卡编号：同一关布局可复现，不同关仍有不同木箱分布。
     std::mt19937 randomEngine(20260713u + static_cast<std::uint32_t>(level * 101));
     std::uniform_int_distribution<int> chance(0, 99);
     const int crateChance = 38 + level * 5;
@@ -216,6 +220,7 @@ bool GameMap::isWalkable(const GridPos& cell) const
 
 bool GameMap::isRectWalkable(const RectF& bounds) const
 {
+    // 检查碰撞盒四角所在网格；轻微内缩避免恰好压线时误判到相邻墙格。
     constexpr float edgeInset = 2.0f;
     const std::array<Vec2, 4> corners = {
         Vec2{ bounds.left + edgeInset, bounds.top + edgeInset },
@@ -277,6 +282,7 @@ bool Character::move(const Vec2& direction, float deltaTime, const GameMap& map,
         return false;
     }
 
+    // 横、纵轴分开尝试，某一轴被墙阻挡时另一轴仍可滑动，转角手感更自然。
     bool moved = false;
     const Vec2 delta = unit * (speed_ * deltaTime);
     Vec2 candidatePosition = position_;
@@ -302,8 +308,7 @@ bool Character::move(const Vec2& direction, float deltaTime, const GameMap& map,
 }
 
 Player::Player()
-    // The visible sprite is roughly one 44 px lane wide, but collision is a
-    // compact 20 px foot box.  Hats and backpacks should never catch on walls.
+    // 可见精灵约占满 44 像素通道，但碰撞只用 20 像素脚底盒，帽子和背包不会卡墙。
     : Character(1, cellCenter({ 1, 1 }), 10.0f, 148.0f)
 {
 }
@@ -311,8 +316,7 @@ Player::Player()
 void Player::update(float deltaTime)
 {
     invulnerableTimer_ = std::max(0.0f, invulnerableTimer_ - deltaTime);
-    // Keep a clock running even while idle. The invulnerability blink used to
-    // freeze on its hidden frame until the player moved for the first time.
+    // 空闲时也推进动画时钟，避免无敌闪烁停在“隐藏帧”等到移动才恢复。
     animationTime_ += deltaTime;
 }
 
@@ -364,8 +368,7 @@ void Player::drawSpriteFrame() const
     const int drawSize = frame == 1 ? SpriteCellSize : SpriteCellSize - 4;
     const int recenter = frame == 0 ? 1 : (frame == 2 ? -1 : 0);
     const int drawX = pixel(position_.x) - drawSize / 2 + recenter;
-    // Keep the feet close to the collision center while allowing the hood to
-    // overlap the tile above. Transparent pixels do not cover the map.
+    // 脚底贴近碰撞中心，头部允许覆盖上一格；透明像素不会遮住地图。
     const int drawY = pixel(position_.y) + 25 - drawSize;
     const int sourceX = frame * SpriteCellSize;
     const int sourceY = row * SpriteCellSize;
@@ -376,10 +379,7 @@ void Player::drawSpriteFrame() const
 void Player::handleMovement(const InputManager& input, float deltaTime,
     const GameMap& map, const std::vector<WaterBubble>& bubbles)
 {
-    // down() keeps long presses smooth; pressed() also catches a quick tap that
-    // starts and ends between two game frames.  Without the second half, menu
-    // navigation feels responsive while a light WASD tap can appear to do
-    // nothing on faster machines.
+    // down() 保证长按连续移动；pressed() 补获两帧之间完成的轻点，防止快速电脑漏输入。
     const auto movementKeyActive = [&](int key)
     {
         return input.down(key) || input.pressed(key);
@@ -439,9 +439,8 @@ void Player::handleMovement(const InputManager& input, float deltaTime,
         }
 
         const Vec2 center = cellCenter(cell());
-        // A 20 px foot box has about 12 px clearance inside a 44 px lane.
-        // Cover that full clearance so an early turn naturally glides to the
-        // centre line instead of stopping against the corner of a wall.
+        // 20 像素脚底盒在 44 像素通道中约有 12 像素余量；提前转向时在该范围内
+        // 缓慢收拢到格中心线，避免角色停在墙角而产生“按键失灵”的感觉。
         const float correctionLimit = speed_ * deltaTime * 2.15f;
         constexpr float assistDistance = 15.0f;
 
@@ -501,6 +500,7 @@ void Player::handleMovement(const InputManager& input, float deltaTime,
 void Player::resetForNewGame(CharacterStyle style)
 {
     style_ = style;
+    // 从配置值对象一次性装载差异化初始属性，Player 不需要角色类型分支。
     const CharacterProfile profile = characterProfile(style);
     lives_ = profile.lives;
     bubbleCapacity_ = profile.bubbleCapacity;
@@ -539,6 +539,7 @@ bool Player::takeDamage()
 
     if (shieldCharges_ > 0)
     {
+        // 护盾优先抵消生命伤害，并提供较短无敌时间防止连续碰撞。
         --shieldCharges_;
         invulnerableTimer_ = 0.8f;
         return true;
@@ -555,6 +556,7 @@ bool Player::takeDamage()
 
 void Player::applyPowerUp(PowerUpType type)
 {
+    // 每项强化均设置硬上限，避免随机掉落把数值推到不可测试范围。
     switch (type)
     {
     case PowerUpType::BlastRange:
@@ -588,6 +590,8 @@ void Player::onBubbleExpired()
     activeBubbles_ = std::max(0, activeBubbles_ - 1);
 }
 
+// ---------------- 敌人继承体系与运行时多态 ----------------
+
 Enemy::Enemy(int id, Vec2 position, float speed)
     : Character(id, position, 14.0f, speed)
 {
@@ -611,6 +615,7 @@ void Enemy::updateAI(float deltaTime, const GameMap& map,
     const bool nearCenter = std::fabs(position_.x - center.x) < 3.5f
         && std::fabs(position_.y - center.y) < 3.5f;
 
+    // 只在接近格中心时换向，防止 AI 在通道中途斜切进墙。
     if (decisionTimer_ <= 0.0f && nearCenter)
     {
         position_ = center;
@@ -705,6 +710,7 @@ Vec2 PatrolEnemy::chooseDirection(const GameMap& map,
         return { -direction_.x, -direction_.y };
     }
 
+    // 优先保留不在即将爆炸范围内的方向；无安全方向时才从全部方向选择。
     std::vector<Vec2> safe;
     for (const Vec2& option : options)
     {
@@ -771,6 +777,7 @@ Vec2 HunterEnemy::chooseDirection(const GameMap& map,
     std::shuffle(options.begin(), options.end(), randomEngine);
     const GridPos targetCell = worldToCell(playerPosition);
     const GridPos current = cell();
+    // 曼哈顿距离越小越优，危险格和立即掉头通过罚分降低优先级。
     auto scoreDirection = [&](const Vec2& direction)
     {
         const GridPos next{ current.row + pixel(direction.y), current.column + pixel(direction.x) };
@@ -839,6 +846,7 @@ void BossEnemy::draw() const
 
 EnemyHitResult BossEnemy::takeWaveHit()
 {
+    // 同一片持续水浪在冷却期内只扣一次血，避免 0.52 秒内逐帧清空 Boss。
     if (!active_ || hitCooldown_ > 0.0f)
     {
         return EnemyHitResult::Ignored;
@@ -884,6 +892,8 @@ Vec2 BossEnemy::chooseDirection(const GameMap& map,
     });
 }
 
+// ---------------- 水泡、水浪、道具与粒子 ----------------
+
 WaterBubble::WaterBubble(GridPos cell, int ownerId, int blastRange)
     : cell_(cell), ownerId_(ownerId), blastRange_(blastRange)
 {
@@ -922,6 +932,7 @@ RectF WaterBubble::bounds() const
 
 void WaterBubble::updateOwnerPassage(const RectF& ownerBounds)
 {
+    // 玩家离开刚放置的水泡格后撤销穿行权，不能再从外部穿回水泡内部。
     if (ownerMayPass_ && !intersects(bounds(), ownerBounds))
     {
         ownerMayPass_ = false;

@@ -173,6 +173,7 @@ const IMAGE* PortraitAtlas::imageFor(PortraitSize size) const
 
 bool PortraitAtlas::load(const std::filesystem::path& imagePath)
 {
+    // 同一原图加载成三种目标尺寸，绘制时只做裁切，避免每帧重复缩放。
     const std::wstring path = imagePath.wstring();
     const int largeResult = loadimage(&largeAtlas_, path.c_str(), 660, 363, true);
     const int cardResult = loadimage(&cardAtlas_, path.c_str(), 520, 286, true);
@@ -206,6 +207,7 @@ void PortraitAtlas::draw(CharacterStyle style, PortraitSize size, int x, int y) 
 
 AudioManager::AudioManager()
 {
+    // 以 EXE 所在目录为基准拼接资源，工程移动到其他电脑仍能找到音频。
     wchar_t executablePath[MAX_PATH]{};
     GetModuleFileNameW(nullptr, executablePath, MAX_PATH);
     audioDirectory_ = std::filesystem::path(executablePath).parent_path() / L"assets" / L"audio";
@@ -313,8 +315,10 @@ int MoeBubbleGame::run()
         const auto frameStart = std::chrono::steady_clock::now();
         float deltaTime = std::chrono::duration<float>(frameStart - previousFrame).count();
         previousFrame = frameStart;
+        // 窗口拖动或断点会产生过大的帧间隔，限幅可防止对象一步穿墙。
         deltaTime = std::clamp(deltaTime, 0.0f, 0.05f);
 
+        // 每帧严格执行：窗口消息 → 键盘状态 → 场景输入 → 更新 → 绘制。
         processWindowMessages();
         input_.poll();
         processInput();
@@ -334,6 +338,7 @@ int MoeBubbleGame::run()
 
 int MoeBubbleGame::captureReportScreenshots(const std::filesystem::path& outputDirectory)
 {
+    // 确定性布置几个代表场景，仍调用正式 render()，保证报告图与提交程序一致。
     std::filesystem::create_directories(outputDirectory);
     openWindow();
 
@@ -386,6 +391,7 @@ void MoeBubbleGame::openWindow()
     ImmAssociateContext(GetHWnd(), HIMC{});
     setbkcolor(Palette::Paper);
     setbkmode(TRANSPARENT);
+    // 图片同样按 EXE 相对路径加载，符合课程“不能写死 C:/D:/”的要求。
     wchar_t executablePath[MAX_PATH]{};
     GetModuleFileNameW(nullptr, executablePath, MAX_PATH);
     const std::filesystem::path portraitPath = std::filesystem::path(executablePath).parent_path()
@@ -402,6 +408,7 @@ void MoeBubbleGame::openWindow()
 
 void MoeBubbleGame::processWindowMessages()
 {
+    // 鼠标点击是本帧边沿信号，每帧先清零；悬停坐标则保留最近位置。
     mouseLeftPressed_ = false;
     ExMessage message{};
     while (peekmessage(&message, EX_MOUSE | EX_WINDOW))
@@ -424,6 +431,7 @@ void MoeBubbleGame::processWindowMessages()
 
 void MoeBubbleGame::processInput()
 {
+    // 状态机将输入分派到当前场景，未激活界面不会误响应按键或鼠标。
     switch (scene_)
     {
     case SceneState::MainMenu: handleMainMenuInput(); break;
@@ -449,6 +457,7 @@ void MoeBubbleGame::update(float deltaTime)
     }
     else
     {
+        // 非战斗场景停止游戏对象，只保留短暂结算粒子继续播放。
         for (StarParticle& particle : particles_)
         {
             particle.update(deltaTime);
@@ -460,6 +469,7 @@ void MoeBubbleGame::update(float deltaTime)
 
 void MoeBubbleGame::transitionTo(SceneState state)
 {
+    // 所有场景切换统一处理音乐与场景计时，避免各按钮重复维护状态。
     const SceneState previous = scene_;
     scene_ = state;
     sceneTime_ = 0.0f;
@@ -755,6 +765,7 @@ void MoeBubbleGame::startNewGame()
 
 void MoeBubbleGame::setupLevel(int level, bool restoreLevelScore)
 {
+    // 重开本关时回滚分数与统计；进入新关时保留累计结果并刷新对象容器。
     if (restoreLevelScore)
     {
         score_ = levelStartScore_;
@@ -775,6 +786,7 @@ void MoeBubbleGame::setupLevel(int level, bool restoreLevelScore)
     int enemyId = 100;
     const float patrolSpeed = 66.0f + level_ * 8.0f;
     const float hunterSpeed = 72.0f + level_ * 9.0f;
+    // 不同派生敌人统一放入 vector<unique_ptr<Enemy>>，由虚函数决定实际行为。
     enemies_.push_back(std::make_unique<PatrolEnemy>(enemyId++, cellCenter({ 11, 13 }), patrolSpeed));
     enemies_.push_back(std::make_unique<PatrolEnemy>(enemyId++, cellCenter({ 1, 13 }), patrolSpeed));
     if (level_ >= 2)
@@ -870,6 +882,7 @@ void MoeBubbleGame::updateBubbles(float deltaTime)
         }
     }
 
+    // 持续处理本帧新触发的水泡，保证任意长度连锁不会拖到下一帧。
     bool exploded = true;
     while (exploded)
     {
@@ -908,6 +921,7 @@ void MoeBubbleGame::explodeBubble(std::size_t bubbleIndex)
         GridPos{ 0, 1 }, GridPos{ 0, -1 }, GridPos{ 1, 0 }, GridPos{ -1, 0 }
     };
 
+    // 四方向逐格传播：固定墙立即阻断；木箱先受击再终止；水泡被置为立即触发。
     for (const GridPos& direction : directions)
     {
         for (int distance = 1; distance <= range; ++distance)
@@ -952,6 +966,7 @@ void MoeBubbleGame::explodeBubble(std::size_t bubbleIndex)
 
 std::vector<GridPos> MoeBubbleGame::collectDangerousCells() const
 {
+    // 把现有水浪和即将爆炸水泡的覆盖格合并，作为所有 AI 的共享避险数据。
     std::vector<GridPos> danger;
     for (const WaterWave& wave : waves_)
     {
@@ -996,6 +1011,7 @@ std::vector<GridPos> MoeBubbleGame::collectDangerousCells() const
 void MoeBubbleGame::updateEnemies(float deltaTime)
 {
     const std::vector<GridPos> danger = collectDangerousCells();
+    // 基类智能指针触发运行时多态，无需按 Patrol/Hunter/Boss 分支判断。
     for (const std::unique_ptr<Enemy>& enemy : enemies_)
     {
         if (enemy->active())
@@ -1007,6 +1023,7 @@ void MoeBubbleGame::updateEnemies(float deltaTime)
 
 void MoeBubbleGame::updateCollisions()
 {
+    // 先处理水浪，再处理敌人接触和道具拾取；玩家死亡后立即结束本帧。
     for (const WaterWave& wave : waves_)
     {
         if (!wave.active())
@@ -1075,6 +1092,7 @@ void MoeBubbleGame::updateCollisions()
 
 void MoeBubbleGame::createPowerUp(const GridPos& cell)
 {
+    // 木箱破坏后有 34% 掉落概率，四类道具等概率选择。
     std::uniform_int_distribution<int> chance(0, 99);
     if (chance(randomEngine_) >= 34)
     {
@@ -1124,6 +1142,8 @@ void MoeBubbleGame::finishGame(bool victory)
 
 void MoeBubbleGame::cleanupInactiveObjects()
 {
+    // 更新/碰撞阶段只标记 active=false，统一在帧末使用擦除-移除，
+    // 避免遍历中删除导致迭代器失效；unique_ptr 同时自动释放派生敌人。
     bubbles_.erase(std::remove_if(bubbles_.begin(), bubbles_.end(),
         [](const WaterBubble& bubble) { return !bubble.active(); }), bubbles_.end());
     waves_.erase(std::remove_if(waves_.begin(), waves_.end(),
@@ -1138,6 +1158,7 @@ void MoeBubbleGame::cleanupInactiveObjects()
 
 void MoeBubbleGame::render() const
 {
+    // 绘制阶段只读取场景状态；暂停/确认框先画底层游戏，再叠加遮罩。
     switch (scene_)
     {
     case SceneState::MainMenu:

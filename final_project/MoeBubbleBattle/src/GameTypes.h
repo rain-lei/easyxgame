@@ -18,6 +18,7 @@
 #include <utility>
 #include <vector>
 
+// 集中保存窗口、网格、HUD 和关卡平衡常量，避免在各类中散落“魔法数字”。
 namespace GameConfig
 {
     constexpr int WindowWidth = 960;
@@ -40,6 +41,7 @@ namespace GameConfig
     constexpr float Pi = 3.14159265358979323846f;
 }
 
+// 全项目共用的低饱和配色表，界面类只引用语义颜色，不重复书写 RGB。
 namespace Palette
 {
     constexpr COLORREF Paper = RGB(255, 248, 237);
@@ -62,6 +64,7 @@ namespace Palette
     constexpr COLORREF CrateDark = RGB(139, 91, 52);
 }
 
+// 二维世界坐标与速度向量；网格坐标另用 GridPos 表示，防止单位混用。
 struct Vec2
 {
     float x = 0.0f;
@@ -89,6 +92,7 @@ inline Vec2 normalized(const Vec2& value)
     return length > 0.0001f ? Vec2{ value.x / length, value.y / length } : Vec2{};
 }
 
+// 浮点轴对齐碰撞矩形，适合逐帧移动后再做精确边界判断。
 struct RectF
 {
     float left = 0.0f;
@@ -103,6 +107,7 @@ inline bool intersects(const RectF& first, const RectF& second)
         && first.top < second.bottom && first.bottom > second.top;
 }
 
+// 地图格坐标。row/column 只描述逻辑网格，不直接参与像素绘制。
 struct GridPos
 {
     int row = 0;
@@ -114,6 +119,7 @@ struct GridPos
     }
 };
 
+// 逻辑网格与 EasyX 世界像素之间的统一换算入口。
 inline Vec2 cellCenter(const GridPos& cell)
 {
     return {
@@ -138,6 +144,8 @@ inline RectF cellBounds(const GridPos& cell, float inset = 0.0f)
         top + GameConfig::TileSize - inset * 2.0f };
 }
 
+// 输入状态封装：down 用于连续移动，pressed 用于菜单等“只触发一次”的操作。
+// 三个固定长度 array 的下标直接对应 Windows 虚拟键码，访问复杂度为 O(1)。
 class InputManager
 {
 public:
@@ -147,6 +155,7 @@ public:
         for (int key = 0; key < static_cast<int>(current_.size()); ++key)
         {
             const SHORT state = GetAsyncKeyState(key);
+            // 高位表示当前按住，低位用于补获两帧轮询之间发生的快速点击。
             current_[key] = (state & 0x8000) != 0;
             pressedSinceLastPoll_[key] = (state & 0x0001) != 0;
         }
@@ -169,6 +178,7 @@ private:
     std::array<bool, 256> pressedSinceLastPoll_{};
 };
 
+// 可选角色外观；实际数值由 CharacterProfile 集中配置。
 enum class CharacterStyle
 {
     Bear,
@@ -177,6 +187,7 @@ enum class CharacterStyle
     Dog
 };
 
+// 角色初始属性值对象。Player 读取该结构，而不在类内判断具体角色类型。
 struct CharacterProfile
 {
     int lives = 3;
@@ -187,6 +198,7 @@ struct CharacterProfile
     const wchar_t* role = L"全能队员";
 };
 
+// 单一配置入口便于课堂演示时平衡生命、速度、容量、威力和护盾。
 inline CharacterProfile characterProfile(CharacterStyle style)
 {
     switch (style)
@@ -211,6 +223,7 @@ enum class PowerUpType
     Shield
 };
 
+// 多态受击结果用于区分普通伤害和最终淘汰，主循环据此计分和播放反馈。
 enum class EnemyHitResult
 {
     Ignored,
@@ -218,6 +231,7 @@ enum class EnemyHitResult
     Defeated
 };
 
+// 游戏场景状态机；输入、更新和绘制均以该枚举进行明确分派。
 enum class SceneState
 {
     MainMenu,
@@ -231,6 +245,7 @@ enum class SceneState
     ExitConfirm
 };
 
+// 每个地图格的封装类型：地板可通行，固定墙和木箱会阻挡角色与水浪。
 enum class TileType
 {
     Floor,

@@ -4,6 +4,7 @@
 #include <tchar.h>
 #include <string>
 
+// 指针值对象封装长度、线宽和颜色，同一 draw 接口只接收当前角度。
 class ClockHand
 {
 public:
@@ -14,6 +15,7 @@ public:
 
     void draw(int centerX, int centerY, double degree) const
     {
+        // EasyX 的 y 轴向下，减 90 度让数学零度与表盘十二点方向对齐。
         double radian = (degree - 90.0) * piValue / 180.0;
         int endX = centerX + static_cast<int>(std::cos(radian) * length_);
         int endY = centerY + static_cast<int>(std::sin(radian) * length_);
@@ -30,6 +32,7 @@ private:
     COLORREF color_;
 };
 
+// 时钟应用组合三根 ClockHand，并负责消息循环、时间读取和表盘绘制。
 class DynamicClock
 {
 public:
@@ -113,6 +116,7 @@ private:
         SYSTEMTIME currentTime;
         GetLocalTime(&currentTime);
 
+        // 加入毫秒和低一级单位，使三根指针连续移动而非整格跳变。
         double secondDegree = currentTime.wSecond * 6.0 + currentTime.wMilliseconds * 0.006;
         double minuteDegree = currentTime.wMinute * 6.0 + currentTime.wSecond * 0.1;
         double hourDegree = (currentTime.wHour % 12) * 30.0 + currentTime.wMinute * 0.5;
@@ -134,6 +138,7 @@ private:
         setlinestyle(PS_SOLID, 6);
         fillcircle(centerX, centerY, clockRadius);
 
+        // 60 次循环绘制分钟刻度，每五个刻度加粗为小时刻度。
         for (int index = 0; index < 60; ++index)
         {
             int outerRadius = clockRadius - 14;

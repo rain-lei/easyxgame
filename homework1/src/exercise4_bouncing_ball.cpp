@@ -7,6 +7,7 @@
 
 #pragma comment(lib, "imm32.lib")
 
+// 挡板封装左右按键状态、边界约束和绘制；坐标不暴露给游戏主循环修改。
 class Paddle
 {
 public:
@@ -77,6 +78,7 @@ private:
     bool movingRight_ = false;
 };
 
+// 小球封装位置、速度、墙面/挡板碰撞和反弹，不负责读取键盘。
 class Ball
 {
 public:
@@ -87,6 +89,7 @@ public:
 
     bool update(const Paddle& paddle, int windowWidth, int windowHeight)
     {
+        // 保存上一帧 y 值，用“穿过挡板上边缘”判断避免侧面重复反弹。
         double previousY = y_;
         x_ += velocityX_;
         y_ += velocityY_;
@@ -142,12 +145,14 @@ private:
             y_ = paddle.top() - radius_;
             velocityY_ = -std::fabs(velocityY_);
 
+            // 命中点相对挡板中心的偏移决定水平速度，给玩家可控的反弹角度。
             double hitOffset = (x_ - paddle.centerX()) / (paddle.width() / 2.0);
             velocityX_ = std::clamp(hitOffset * 7.0, -7.0, 7.0);
         }
     }
 };
 
+// 游戏组合根拥有 Ball 与 Paddle，统一安排输入、更新、绘制和帧率限制。
 class BouncingBallGame
 {
 public:
@@ -198,6 +203,7 @@ private:
 
     void runFrame()
     {
+        // 固定帧阶段顺序，保证输入先影响对象，再绘制同一帧的新状态。
         DWORD frameStart = GetTickCount();
         processInput();
 
@@ -265,6 +271,7 @@ private:
 
     void limitFrameRate(DWORD frameStart) const
     {
+        // 目标约 60 FPS，避免不同电脑运行速度影响移动和碰撞手感。
         DWORD frameElapsed = GetTickCount() - frameStart;
         if (frameElapsed < targetFrameMs)
         {
