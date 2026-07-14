@@ -34,6 +34,9 @@ namespace GameConfig
     constexpr int HudWidth = 228;
     constexpr int HudHeight = 672;
     constexpr int TotalLevels = 3;
+    // 课程演示时只需修改这里，就能集中调整第三关首领强度。
+    constexpr int BossMaxHealth = 10;
+    constexpr int MaxPlayerLives = 4;
     constexpr float Pi = 3.14159265358979323846f;
 }
 
@@ -174,12 +177,45 @@ enum class CharacterStyle
     Dog
 };
 
+struct CharacterProfile
+{
+    int lives = 3;
+    int bubbleCapacity = 1;
+    int blastRange = 2;
+    int shieldCharges = 0;
+    float moveSpeed = 148.0f;
+    const wchar_t* role = L"全能队员";
+};
+
+inline CharacterProfile characterProfile(CharacterStyle style)
+{
+    switch (style)
+    {
+    case CharacterStyle::Bear:
+        return { 3, 2, 2, 0, 150.0f, L"全能队员" };
+    case CharacterStyle::Rabbit:
+        return { 3, 1, 2, 0, 178.0f, L"疾风侦察" };
+    case CharacterStyle::Cat:
+        return { 2, 2, 3, 0, 152.0f, L"爆破专家" };
+    case CharacterStyle::Dog:
+        return { 4, 1, 2, 1, 138.0f, L"守护先锋" };
+    }
+    return {};
+}
+
 enum class PowerUpType
 {
     BlastRange,
     BubbleCapacity,
     Speed,
     Shield
+};
+
+enum class EnemyHitResult
+{
+    Ignored,
+    Damaged,
+    Defeated
 };
 
 enum class SceneState

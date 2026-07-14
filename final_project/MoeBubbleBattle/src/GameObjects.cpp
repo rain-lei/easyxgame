@@ -34,6 +34,63 @@ namespace
         setfillcolor(color);
         fillpolygon(points, 10);
     }
+
+    void drawAlphaSubImage(const IMAGE& image, int sourceX, int sourceY,
+        int sourceWidth, int sourceHeight, int destinationX, int destinationY,
+        int destinationWidth, int destinationHeight)
+    {
+        DWORD* destination = GetImageBuffer();
+        DWORD* source = GetImageBuffer(const_cast<IMAGE*>(&image));
+        if (destination == nullptr || source == nullptr || destinationWidth <= 0 || destinationHeight <= 0)
+        {
+            return;
+        }
+
+        const int canvasWidth = getwidth();
+        const int canvasHeight = getheight();
+        const int imageWidth = image.getwidth();
+        for (int localY = 0; localY < destinationHeight; ++localY)
+        {
+            const int targetY = destinationY + localY;
+            if (targetY < 0 || targetY >= canvasHeight)
+            {
+                continue;
+            }
+            const int sampleY = sourceY + localY * sourceHeight / destinationHeight;
+            for (int localX = 0; localX < destinationWidth; ++localX)
+            {
+                const int targetX = destinationX + localX;
+                if (targetX < 0 || targetX >= canvasWidth)
+                {
+                    continue;
+                }
+                const int sampleX = sourceX + localX * sourceWidth / destinationWidth;
+                const DWORD sourcePixel = source[sampleY * imageWidth + sampleX];
+                const unsigned int alpha = (sourcePixel >> 24) & 0xffu;
+                if (alpha == 0u)
+                {
+                    continue;
+                }
+
+                DWORD& destinationPixel = destination[targetY * canvasWidth + targetX];
+                if (alpha == 255u)
+                {
+                    destinationPixel = (destinationPixel & 0xff000000u) | (sourcePixel & 0x00ffffffu);
+                    continue;
+                }
+
+                const unsigned int inverseAlpha = 255u - alpha;
+                const unsigned int blue = ((sourcePixel & 0xffu) * alpha
+                    + (destinationPixel & 0xffu) * inverseAlpha) / 255u;
+                const unsigned int green = (((sourcePixel >> 8) & 0xffu) * alpha
+                    + ((destinationPixel >> 8) & 0xffu) * inverseAlpha) / 255u;
+                const unsigned int red = (((sourcePixel >> 16) & 0xffu) * alpha
+                    + ((destinationPixel >> 16) & 0xffu) * inverseAlpha) / 255u;
+                destinationPixel = (destinationPixel & 0xff000000u)
+                    | (red << 16) | (green << 8) | blue;
+            }
+        }
+    }
 }
 
 GameMap::GameMap()
@@ -56,11 +113,12 @@ void GameMap::setTile(const GridPos& cell, TileType tile)
 
 bool GameMap::isReservedSpawnCell(const GridPos& cell) const
 {
-    constexpr std::array<GridPos, 12> reserved = {
+    constexpr std::array<GridPos, 15> reserved = {
         GridPos{ 1, 1 }, GridPos{ 1, 2 }, GridPos{ 2, 1 },
         GridPos{ 11, 13 }, GridPos{ 11, 12 }, GridPos{ 10, 13 },
         GridPos{ 1, 13 }, GridPos{ 1, 12 }, GridPos{ 2, 13 },
-        GridPos{ 11, 1 }, GridPos{ 11, 2 }, GridPos{ 10, 1 }
+        GridPos{ 11, 1 }, GridPos{ 11, 2 }, GridPos{ 10, 1 },
+        GridPos{ 9, 13 }, GridPos{ 9, 12 }, GridPos{ 8, 13 }
     };
     return std::find(reserved.begin(), reserved.end(), cell) != reserved.end();
 }
@@ -297,71 +355,22 @@ void Player::drawSpriteFrame() const
     int frame = 1;
     if (walking_)
     {
-        frame = static_cast<int>(animationTime_ * 9.0f) % 2 == 0 ? 0 : 2;
+        // 在左右脚之间插入四次回中姿态，降低旧版两张跨步图直接切换时的摆动感。
+        constexpr std::array<int, 6> walkCycle = { 1, 0, 1, 1, 2, 1 };
+        frame = walkCycle[static_cast<int>(walkAnimationTime_ * 8.0f) % walkCycle.size()];
     }
 
     const int row = std::clamp(static_cast<int>(style_), 0, SpriteRows - 1);
-    const int drawSize = SpriteCellSize;
-    const int drawX = pixel(position_.x) - drawSize / 2;
+    const int drawSize = frame == 1 ? SpriteCellSize : SpriteCellSize - 4;
+    const int recenter = frame == 0 ? 1 : (frame == 2 ? -1 : 0);
+    const int drawX = pixel(position_.x) - drawSize / 2 + recenter;
     // Keep the feet close to the collision center while allowing the hood to
     // overlap the tile above. Transparent pixels do not cover the map.
-    const int drawY = pixel(position_.y) - 47;
-
-    DWORD* destination = GetImageBuffer();
-    DWORD* source = GetImageBuffer(&spriteSheet_);
-    if (destination == nullptr || source == nullptr)
-    {
-        return;
-    }
-
-    const int destinationWidth = getwidth();
-    const int destinationHeight = getheight();
-    const int sourceWidth = spriteSheet_.getwidth();
+    const int drawY = pixel(position_.y) + 25 - drawSize;
     const int sourceX = frame * SpriteCellSize;
     const int sourceY = row * SpriteCellSize;
-    for (int localY = 0; localY < drawSize; ++localY)
-    {
-        const int destinationY = drawY + localY;
-        if (destinationY < 0 || destinationY >= destinationHeight)
-        {
-            continue;
-        }
-        for (int localX = 0; localX < drawSize; ++localX)
-        {
-            const int destinationX = drawX + localX;
-            if (destinationX < 0 || destinationX >= destinationWidth)
-            {
-                continue;
-            }
-
-            const DWORD sourcePixel = source[(sourceY + localY) * sourceWidth + sourceX + localX];
-            const unsigned int alpha = (sourcePixel >> 24) & 0xffu;
-            if (alpha == 0u)
-            {
-                continue;
-            }
-
-            DWORD& destinationPixel = destination[destinationY * destinationWidth + destinationX];
-            if (alpha == 255u)
-            {
-                destinationPixel = (destinationPixel & 0xff000000u) | (sourcePixel & 0x00ffffffu);
-                continue;
-            }
-
-            const unsigned int inverseAlpha = 255u - alpha;
-            const unsigned int sourceBlue = sourcePixel & 0xffu;
-            const unsigned int sourceGreen = (sourcePixel >> 8) & 0xffu;
-            const unsigned int sourceRed = (sourcePixel >> 16) & 0xffu;
-            const unsigned int destinationBlue = destinationPixel & 0xffu;
-            const unsigned int destinationGreen = (destinationPixel >> 8) & 0xffu;
-            const unsigned int destinationRed = (destinationPixel >> 16) & 0xffu;
-            const unsigned int blue = (sourceBlue * alpha + destinationBlue * inverseAlpha) / 255u;
-            const unsigned int green = (sourceGreen * alpha + destinationGreen * inverseAlpha) / 255u;
-            const unsigned int red = (sourceRed * alpha + destinationRed * inverseAlpha) / 255u;
-            destinationPixel = (destinationPixel & 0xff000000u)
-                | (red << 16) | (green << 8) | blue;
-        }
-    }
+    drawAlphaSubImage(spriteSheet_, sourceX, sourceY, SpriteCellSize, SpriteCellSize,
+        drawX, drawY, drawSize, drawSize);
 }
 
 void Player::handleMovement(const InputManager& input, float deltaTime,
@@ -397,6 +406,7 @@ void Player::handleMovement(const InputManager& input, float deltaTime,
     if (lengthSquared(requested) < 0.001f)
     {
         walking_ = false;
+        walkAnimationTime_ = 0.0f;
         return;
     }
 
@@ -479,24 +489,32 @@ void Player::handleMovement(const InputManager& input, float deltaTime,
     walking_ = moved;
     if (moved)
     {
+        walkAnimationTime_ += deltaTime;
         facing_ = normalized(primary);
+    }
+    else
+    {
+        walkAnimationTime_ = 0.0f;
     }
 }
 
 void Player::resetForNewGame(CharacterStyle style)
 {
     style_ = style;
-    lives_ = 3;
-    bubbleCapacity_ = 1;
+    const CharacterProfile profile = characterProfile(style);
+    lives_ = profile.lives;
+    bubbleCapacity_ = profile.bubbleCapacity;
     activeBubbles_ = 0;
-    blastRange_ = 2;
+    blastRange_ = profile.blastRange;
     speedLevel_ = 0;
-    shieldCharges_ = 0;
-    speed_ = 148.0f;
+    shieldCharges_ = profile.shieldCharges;
+    baseSpeed_ = profile.moveSpeed;
+    speed_ = baseSpeed_;
     invulnerableTimer_ = 0.0f;
     facing_ = { 0.0f, 1.0f };
     walking_ = false;
     animationTime_ = 0.0f;
+    walkAnimationTime_ = 0.0f;
     active_ = true;
     prepareForLevel({ 1, 1 });
 }
@@ -508,6 +526,7 @@ void Player::prepareForLevel(const GridPos& spawnCell)
     invulnerableTimer_ = 1.2f;
     walking_ = false;
     animationTime_ = 0.0f;
+    walkAnimationTime_ = 0.0f;
     active_ = true;
 }
 
@@ -546,7 +565,7 @@ void Player::applyPowerUp(PowerUpType type)
         break;
     case PowerUpType::Speed:
         speedLevel_ = std::min(4, speedLevel_ + 1);
-        speed_ = 148.0f + speedLevel_ * 14.0f;
+        speed_ = baseSpeed_ + speedLevel_ * 14.0f;
         break;
     case PowerUpType::Shield:
         shieldCharges_ = std::min(2, shieldCharges_ + 1);
@@ -604,6 +623,16 @@ void Enemy::updateAI(float deltaTime, const GameMap& map,
         direction_ = chooseDirection(map, bubbles, dangerousCells, playerPosition, randomEngine);
         decisionTimer_ = 0.0f;
     }
+}
+
+EnemyHitResult Enemy::takeWaveHit()
+{
+    if (!active_)
+    {
+        return EnemyHitResult::Ignored;
+    }
+    active_ = false;
+    return EnemyHitResult::Defeated;
 }
 
 std::vector<Vec2> Enemy::availableDirections(const GameMap& map,
@@ -756,6 +785,105 @@ Vec2 HunterEnemy::chooseDirection(const GameMap& map,
     });
 }
 
+BossEnemy::BossEnemy(int id, Vec2 position, float speed, int maxHealth)
+    : Enemy(id, position, speed), health_(std::max(1, maxHealth)), maxHealth_(std::max(1, maxHealth))
+{
+    radius_ = 17.0f;
+}
+
+void BossEnemy::update(float deltaTime)
+{
+    Enemy::update(deltaTime);
+    hitCooldown_ = std::max(0.0f, hitCooldown_ - deltaTime);
+}
+
+void BossEnemy::draw() const
+{
+    const int x = pixel(position_.x);
+    const int y = pixel(position_.y + std::sin(animationTime_ * 5.0f) * 1.2f);
+    const COLORREF body = hitCooldown_ > 0.0f ? RGB(211, 166, 235) : RGB(112, 73, 155);
+
+    setlinecolor(Palette::PurpleDark);
+    setfillcolor(body);
+    fillroundrect(x - 18, y - 14, x + 18, y + 16, 14, 14);
+    solidcircle(x - 11, y - 13, 6);
+    solidcircle(x + 11, y - 13, 6);
+
+    POINT crown[7] = {
+        { x - 15, y - 17 }, { x - 12, y - 30 }, { x - 4, y - 22 },
+        { x, y - 34 }, { x + 5, y - 22 }, { x + 13, y - 30 }, { x + 16, y - 17 }
+    };
+    setfillcolor(Palette::Honey);
+    fillpolygon(crown, 7);
+    setfillcolor(Palette::White);
+    solidcircle(x - 6, y - 3, 4);
+    solidcircle(x + 6, y - 3, 4);
+    setfillcolor(Palette::Ink);
+    solidcircle(x - 5, y - 3, 2);
+    solidcircle(x + 5, y - 3, 2);
+    setlinecolor(Palette::Ink);
+    line(x - 7, y + 9, x, y + 5);
+    line(x, y + 5, x + 7, y + 9);
+
+    const int barLeft = x - 22;
+    const int barRight = x + 22;
+    const int barTop = y - 43;
+    setfillcolor(Palette::Shadow);
+    solidrectangle(barLeft, barTop, barRight, barTop + 5);
+    setfillcolor(Palette::Danger);
+    const int filled = barLeft + (barRight - barLeft) * health_ / maxHealth_;
+    solidrectangle(barLeft, barTop, filled, barTop + 5);
+    setlinecolor(Palette::Ink);
+    rectangle(barLeft, barTop, barRight, barTop + 5);
+}
+
+EnemyHitResult BossEnemy::takeWaveHit()
+{
+    if (!active_ || hitCooldown_ > 0.0f)
+    {
+        return EnemyHitResult::Ignored;
+    }
+
+    --health_;
+    hitCooldown_ = 0.60f;
+    if (health_ <= 0)
+    {
+        health_ = 0;
+        active_ = false;
+        return EnemyHitResult::Defeated;
+    }
+    return EnemyHitResult::Damaged;
+}
+
+Vec2 BossEnemy::chooseDirection(const GameMap& map,
+    const std::vector<WaterBubble>& bubbles,
+    const std::vector<GridPos>& dangerousCells,
+    const Vec2& playerPosition,
+    std::mt19937& randomEngine)
+{
+    std::vector<Vec2> options = availableDirections(map, bubbles);
+    if (options.empty())
+    {
+        return { -direction_.x, -direction_.y };
+    }
+
+    std::shuffle(options.begin(), options.end(), randomEngine);
+    const GridPos target = worldToCell(playerPosition);
+    const GridPos current = cell();
+    auto score = [&](const Vec2& direction)
+    {
+        const GridPos next{ current.row + pixel(direction.y), current.column + pixel(direction.x) };
+        const int distance = std::abs(next.row - target.row) + std::abs(next.column - target.column);
+        const int dangerPenalty = isDangerous(next, dangerousCells) ? 30 : 0;
+        const int reversePenalty = isOpposite(direction, direction_) ? 1 : 0;
+        return distance + dangerPenalty + reversePenalty;
+    };
+    return *std::min_element(options.begin(), options.end(), [&](const Vec2& first, const Vec2& second)
+    {
+        return score(first) < score(second);
+    });
+}
+
 WaterBubble::WaterBubble(GridPos cell, int ownerId, int blastRange)
     : cell_(cell), ownerId_(ownerId), blastRange_(blastRange)
 {
@@ -844,8 +972,26 @@ RectF WaterWave::bounds() const
     return cellBounds(cell_, 4.0f);
 }
 
-PowerUp::PowerUp(GridPos cell, PowerUpType type)
-    : cell_(cell), type_(type)
+bool ItemIconAtlas::load(const std::filesystem::path& imagePath)
+{
+    const std::wstring path = imagePath.wstring();
+    loaded_ = loadimage(&atlas_, path.c_str(), CellSize * 4, CellSize, true) == 0;
+    return loaded_;
+}
+
+void ItemIconAtlas::draw(PowerUpType type, int centerX, int centerY, int size) const
+{
+    if (!loaded_)
+    {
+        return;
+    }
+    const int column = std::clamp(static_cast<int>(type), 0, 3);
+    drawAlphaSubImage(atlas_, column * CellSize, 0, CellSize, CellSize,
+        centerX - size / 2, centerY - size / 2, size, size);
+}
+
+PowerUp::PowerUp(GridPos cell, PowerUpType type, const ItemIconAtlas* icons)
+    : cell_(cell), type_(type), icons_(icons)
 {
 }
 
@@ -863,6 +1009,14 @@ void PowerUp::draw() const
 {
     const Vec2 center = cellCenter(cell_);
     const int y = pixel(center.y + std::sin(animationTime_ * 5.0f) * 3.0f);
+    if (icons_ != nullptr && icons_->loaded())
+    {
+        setfillcolor(RGB(255, 251, 235));
+        solidcircle(pixel(center.x), y, 19);
+        icons_->draw(type_, pixel(center.x), y, 38);
+        return;
+    }
+
     COLORREF color = Palette::Aqua;
     wchar_t symbol[2] = L"+";
     switch (type_)

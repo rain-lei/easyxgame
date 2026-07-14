@@ -90,6 +90,7 @@ public:
     int activeBubbles() const { return activeBubbles_; }
     int blastRange() const { return blastRange_; }
     int speedLevel() const { return speedLevel_; }
+    int movementSpeed() const { return static_cast<int>(std::lround(speed_)); }
     int shieldCharges() const { return shieldCharges_; }
     bool invulnerable() const { return invulnerableTimer_ > 0.0f; }
 
@@ -109,8 +110,10 @@ private:
     int blastRange_ = 2;
     int speedLevel_ = 0;
     int shieldCharges_ = 0;
+    float baseSpeed_ = 148.0f;
     float invulnerableTimer_ = 0.0f;
     float animationTime_ = 0.0f;
+    float walkAnimationTime_ = 0.0f;
 
     void drawSpriteFrame() const;
 };
@@ -126,6 +129,11 @@ public:
         const std::vector<GridPos>& dangerousCells,
         const Vec2& playerPosition,
         std::mt19937& randomEngine);
+    virtual EnemyHitResult takeWaveHit();
+    virtual int scoreValue() const { return 300; }
+    virtual bool isBoss() const { return false; }
+    virtual int health() const { return active_ ? 1 : 0; }
+    virtual int maxHealth() const { return 1; }
 
 protected:
     Vec2 direction_{ 0.0f, 1.0f };
@@ -171,6 +179,32 @@ protected:
         std::mt19937& randomEngine) override;
 };
 
+class BossEnemy final : public Enemy
+{
+public:
+    BossEnemy(int id, Vec2 position, float speed, int maxHealth);
+
+    void update(float deltaTime) override;
+    void draw() const override;
+    EnemyHitResult takeWaveHit() override;
+    int scoreValue() const override { return 1500; }
+    bool isBoss() const override { return true; }
+    int health() const override { return health_; }
+    int maxHealth() const override { return maxHealth_; }
+
+protected:
+    Vec2 chooseDirection(const GameMap& map,
+        const std::vector<WaterBubble>& bubbles,
+        const std::vector<GridPos>& dangerousCells,
+        const Vec2& playerPosition,
+        std::mt19937& randomEngine) override;
+
+private:
+    int health_ = 1;
+    int maxHealth_ = 1;
+    float hitCooldown_ = 0.0f;
+};
+
 class WaterBubble final : public GameObject
 {
 public:
@@ -213,10 +247,23 @@ private:
     float lifetime_ = 0.52f;
 };
 
+class ItemIconAtlas
+{
+public:
+    bool load(const std::filesystem::path& imagePath);
+    bool loaded() const { return loaded_; }
+    void draw(PowerUpType type, int centerX, int centerY, int size) const;
+
+private:
+    static constexpr int CellSize = 256;
+    IMAGE atlas_;
+    bool loaded_ = false;
+};
+
 class PowerUp final : public GameObject
 {
 public:
-    PowerUp(GridPos cell, PowerUpType type);
+    PowerUp(GridPos cell, PowerUpType type, const ItemIconAtlas* icons = nullptr);
 
     void update(float deltaTime) override;
     void draw() const override;
@@ -228,6 +275,7 @@ private:
     PowerUpType type_ = PowerUpType::BlastRange;
     float lifetime_ = 14.0f;
     float animationTime_ = 0.0f;
+    const ItemIconAtlas* icons_ = nullptr;
 };
 
 class StarParticle final : public GameObject

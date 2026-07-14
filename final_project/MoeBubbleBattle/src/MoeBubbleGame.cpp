@@ -107,7 +107,7 @@ namespace
         fillpolygon(tip, 3);
     }
 
-    void drawSmallIcon(int x, int y, PowerUpType type, int value)
+    void drawSmallIcon(const ItemIconAtlas& icons, int x, int y, PowerUpType type, int value)
     {
         COLORREF color = Palette::Aqua;
         wchar_t symbol[2] = L"B";
@@ -119,10 +119,24 @@ namespace
         case PowerUpType::Shield: color = Palette::Mint; symbol[0] = L'盾'; break;
         }
         setlinecolor(Palette::Ink);
-        setfillcolor(color);
+        setfillcolor(RGB(255, 251, 239));
         fillroundrect(x, y, x + 52, y + 48, 12, 12);
-        drawCenteredText(symbol, x + 20, y + 7, 18, Palette::Ink, true);
-        drawTextAt(std::to_wstring(value), x + 34, y + 24, 16, Palette::Ink, true);
+        if (icons.loaded())
+        {
+            icons.draw(type, x + 22, y + 22, 40);
+        }
+        else
+        {
+            setfillcolor(color);
+            solidcircle(x + 21, y + 22, 16);
+            drawCenteredText(symbol, x + 21, y + 12, 16, Palette::Ink, true);
+        }
+        const std::wstring valueText = std::to_wstring(value);
+        setlinecolor(Palette::Ink);
+        setfillcolor(Palette::White);
+        fillroundrect(x + 26, y + 27, x + 52, y + 48, 8, 8);
+        drawCenteredText(valueText, x + 39, y + (value >= 100 ? 31 : 29),
+            value >= 100 ? 11 : 14, Palette::Ink, true);
     }
 
     std::wstring formatTime(float seconds)
@@ -334,14 +348,27 @@ void MoeBubbleGame::openWindow()
     const std::filesystem::path spritePath = std::filesystem::path(executablePath).parent_path()
         / L"assets" / L"sprites" / L"player_walk_sheet.png";
     player_.loadSpriteSheet(spritePath);
+    const std::filesystem::path itemIconPath = std::filesystem::path(executablePath).parent_path()
+        / L"assets" / L"ui" / L"item_icons_v1.png";
+    itemIcons_.load(itemIconPath);
     BeginBatchDraw();
 }
 
 void MoeBubbleGame::processWindowMessages()
 {
+    mouseLeftPressed_ = false;
     ExMessage message{};
-    while (peekmessage(&message, EX_WINDOW))
+    while (peekmessage(&message, EX_MOUSE | EX_WINDOW))
     {
+        if (message.message >= WM_MOUSEFIRST && message.message <= WM_MOUSELAST)
+        {
+            mouseX_ = message.x;
+            mouseY_ = message.y;
+            if (message.message == WM_LBUTTONDOWN)
+            {
+                mouseLeftPressed_ = true;
+            }
+        }
         if (message.message == WM_CLOSE)
         {
             running_ = false;
@@ -425,8 +452,36 @@ void MoeBubbleGame::moveMenuSelection(int& index, int itemCount, int direction)
     audio_.playEffect(L"sfx_menu_move.wav");
 }
 
+bool MoeBubbleGame::mouseInside(int left, int top, int right, int bottom) const
+{
+    return mouseX_ >= left && mouseX_ <= right && mouseY_ >= top && mouseY_ <= bottom;
+}
+
+bool MoeBubbleGame::mouseSelects(int& index, int candidate,
+    int left, int top, int right, int bottom)
+{
+    if (!mouseInside(left, top, right, bottom))
+    {
+        return false;
+    }
+    if (index != candidate)
+    {
+        index = candidate;
+        audio_.playEffect(L"sfx_menu_move.wav");
+    }
+    return mouseLeftPressed_;
+}
+
 void MoeBubbleGame::handleMainMenuInput()
 {
+    bool clicked = false;
+    for (int index = 0; index < 4; ++index)
+    {
+        if (mouseSelects(menuIndex_, index, 558, 236 + index * 78, 868, 294 + index * 78))
+        {
+            clicked = true;
+        }
+    }
     if (input_.pressed(VK_UP) || input_.pressed('W'))
     {
         moveMenuSelection(menuIndex_, 4, -1);
@@ -435,7 +490,7 @@ void MoeBubbleGame::handleMainMenuInput()
     {
         moveMenuSelection(menuIndex_, 4, 1);
     }
-    if (input_.pressed(VK_RETURN) || input_.pressed(VK_SPACE))
+    if (input_.pressed(VK_RETURN) || input_.pressed(VK_SPACE) || clicked)
     {
         audio_.playEffect(L"sfx_menu_confirm.wav");
         if (menuIndex_ == 0)
@@ -469,6 +524,11 @@ void MoeBubbleGame::handleMainMenuInput()
 
 void MoeBubbleGame::handleCharacterSelectInput()
 {
+    for (int index = 0; index < 4; ++index)
+    {
+        const int left = 30 + index * 232;
+        mouseSelects(characterIndex_, index, left, 148, left + 204, 600);
+    }
     if (input_.pressed(VK_LEFT) || input_.pressed('A'))
     {
         moveMenuSelection(characterIndex_, 4, -1);
@@ -477,7 +537,8 @@ void MoeBubbleGame::handleCharacterSelectInput()
     {
         moveMenuSelection(characterIndex_, 4, 1);
     }
-    if (input_.pressed(VK_RETURN) || input_.pressed(VK_SPACE))
+    const bool confirmClicked = mouseLeftPressed_ && mouseInside(282, 618, 678, 674);
+    if (input_.pressed(VK_RETURN) || input_.pressed(VK_SPACE) || confirmClicked)
     {
         selectedStyle_ = styleFromIndex(characterIndex_);
         audio_.playEffect(L"sfx_menu_confirm.wav");
@@ -491,7 +552,8 @@ void MoeBubbleGame::handleCharacterSelectInput()
 
 void MoeBubbleGame::handleInstructionsInput()
 {
-    if (input_.pressed(VK_RETURN) || input_.pressed(VK_SPACE) || input_.pressed(VK_ESCAPE))
+    if (input_.pressed(VK_RETURN) || input_.pressed(VK_SPACE) || input_.pressed(VK_ESCAPE)
+        || (mouseLeftPressed_ && mouseInside(330, 612, 630, 666)))
     {
         transitionTo(instructionReturnScene_);
     }
@@ -517,6 +579,14 @@ void MoeBubbleGame::handlePausedInput()
         transitionTo(SceneState::Playing);
         return;
     }
+    bool clicked = false;
+    for (int index = 0; index < 4; ++index)
+    {
+        if (mouseSelects(pauseIndex_, index, 330, 260 + index * 72, 630, 314 + index * 72))
+        {
+            clicked = true;
+        }
+    }
     if (input_.pressed(VK_UP) || input_.pressed('W'))
     {
         moveMenuSelection(pauseIndex_, 4, -1);
@@ -525,7 +595,7 @@ void MoeBubbleGame::handlePausedInput()
     {
         moveMenuSelection(pauseIndex_, 4, 1);
     }
-    if (input_.pressed(VK_RETURN) || input_.pressed(VK_SPACE))
+    if (input_.pressed(VK_RETURN) || input_.pressed(VK_SPACE) || clicked)
     {
         audio_.playEffect(L"sfx_menu_confirm.wav");
         if (pauseIndex_ == 0)
@@ -550,6 +620,19 @@ void MoeBubbleGame::handlePausedInput()
 
 void MoeBubbleGame::handleResultInput()
 {
+    bool clicked = false;
+    if (scene_ == SceneState::Victory)
+    {
+        clicked = mouseSelects(resultIndex_, 0, 248, 580, 468, 638);
+        if (mouseSelects(resultIndex_, 1, 492, 580, 712, 638)) clicked = true;
+    }
+    else
+    {
+        const int firstTop = scene_ == SceneState::LevelClear ? 458 : 468;
+        clicked = mouseSelects(resultIndex_, 0, 292, firstTop, 668, firstTop + 56);
+        const int secondTop = scene_ == SceneState::LevelClear ? 528 : 538;
+        if (mouseSelects(resultIndex_, 1, 292, secondTop, 668, secondTop + 56)) clicked = true;
+    }
     if (input_.pressed(VK_UP) || input_.pressed(VK_LEFT) || input_.pressed('W') || input_.pressed('A'))
     {
         moveMenuSelection(resultIndex_, 2, -1);
@@ -568,7 +651,7 @@ void MoeBubbleGame::handleResultInput()
         transitionTo(SceneState::MainMenu);
         return;
     }
-    if (input_.pressed(VK_RETURN) || input_.pressed(VK_SPACE))
+    if (input_.pressed(VK_RETURN) || input_.pressed(VK_SPACE) || clicked)
     {
         audio_.playEffect(L"sfx_menu_confirm.wav");
         if (resultIndex_ == 1)
@@ -589,6 +672,8 @@ void MoeBubbleGame::handleResultInput()
 
 void MoeBubbleGame::handleExitConfirmInput()
 {
+    bool clicked = mouseSelects(exitChoice_, 0, 300, 364, 474, 424);
+    if (mouseSelects(exitChoice_, 1, 492, 364, 666, 424)) clicked = true;
     if (input_.pressed(VK_LEFT) || input_.pressed(VK_RIGHT)
         || input_.pressed(VK_UP) || input_.pressed(VK_DOWN))
     {
@@ -599,7 +684,7 @@ void MoeBubbleGame::handleExitConfirmInput()
     {
         transitionTo(exitReturnScene_);
     }
-    if (input_.pressed(VK_RETURN) || input_.pressed(VK_SPACE))
+    if (input_.pressed(VK_RETURN) || input_.pressed(VK_SPACE) || clicked)
     {
         if (exitChoice_ == 0)
         {
@@ -652,7 +737,8 @@ void MoeBubbleGame::setupLevel(int level, bool restoreLevelScore)
     }
     if (level_ >= 3)
     {
-        enemies_.push_back(std::make_unique<HunterEnemy>(enemyId++, cellCenter({ 9, 13 }), hunterSpeed + 6.0f));
+        enemies_.push_back(std::make_unique<BossEnemy>(enemyId++, cellCenter({ 9, 13 }),
+            hunterSpeed - 8.0f, GameConfig::BossMaxHealth));
     }
 
     if (!restoreLevelScore)
@@ -896,10 +982,18 @@ void MoeBubbleGame::updateCollisions()
         {
             if (enemy->active() && intersects(wave.bounds(), enemy->bounds()))
             {
-                enemy->deactivate();
-                score_ += 300;
-                ++statistics_.enemiesDefeated;
-                createParticles(enemy->position(), Palette::Purple, 12);
+                const EnemyHitResult result = enemy->takeWaveHit();
+                if (result == EnemyHitResult::Damaged)
+                {
+                    audio_.playEffect(L"sfx_hit.wav");
+                    createParticles(enemy->position(), Palette::Coral, 7);
+                }
+                else if (result == EnemyHitResult::Defeated)
+                {
+                    score_ += enemy->scoreValue();
+                    ++statistics_.enemiesDefeated;
+                    createParticles(enemy->position(), Palette::Purple, enemy->isBoss() ? 24 : 12);
+                }
             }
         }
     }
@@ -941,7 +1035,7 @@ void MoeBubbleGame::createPowerUp(const GridPos& cell)
         return;
     }
     std::uniform_int_distribution<int> type(0, 3);
-    powerUps_.emplace_back(cell, static_cast<PowerUpType>(type(randomEngine_)));
+    powerUps_.emplace_back(cell, static_cast<PowerUpType>(type(randomEngine_)), &itemIcons_);
 }
 
 void MoeBubbleGame::createParticles(const Vec2& position, COLORREF color, int count)
@@ -1095,7 +1189,7 @@ void MoeBubbleGame::drawMainMenu() const
         drawButton(558, 236 + index * 78, 868, 294 + index * 78,
             labels[index], index == menuIndex_, index == 3 ? Palette::Coral : Palette::Aqua);
     }
-    drawCenteredText(L"↑ ↓ 选择    Enter 确认    Esc 退出", 713, 588, 18, Palette::Ink);
+    drawCenteredText(L"鼠标点击 / ↑ ↓ 选择    Enter 确认", 713, 588, 18, Palette::Ink);
     drawCenteredText(L"C++ · Visual Studio · EasyX", 480, 680, 16, RGB(108, 127, 137));
 }
 
@@ -1103,7 +1197,7 @@ void MoeBubbleGame::drawCharacterSelect() const
 {
     drawBackground();
     drawCenteredText(L"选择你的泡泡搭档", 480, 46, 42, Palette::Ink, true);
-    drawCenteredText(L"四位角色能力相同，仅外观与主题色不同", 480, 100, 18, RGB(92, 113, 124));
+    drawCenteredText(L"四位搭档拥有不同生命、移速、水泡数量和爆破范围", 480, 100, 18, RGB(92, 113, 124));
 
     for (int index = 0; index < 4; ++index)
     {
@@ -1111,13 +1205,14 @@ void MoeBubbleGame::drawCharacterSelect() const
         const int right = left + 204;
         const bool selected = index == characterIndex_;
         const CharacterStyle style = styleFromIndex(index);
+        const CharacterProfile profile = characterProfile(style);
         if (selected)
         {
             setlinecolor(styleColor(style));
             setfillcolor(styleColor(style));
-            fillroundrect(left - 5, 142, right + 5, 574, 26, 26);
+            fillroundrect(left - 5, 142, right + 5, 606, 26, 26);
         }
-        drawPanel(left, 148, right, 568, Palette::White, 22, true);
+        drawPanel(left, 148, right, 600, Palette::White, 22, true);
         if (portraits_.loaded())
         {
             portraits_.draw(style, PortraitSize::Card,
@@ -1128,16 +1223,19 @@ void MoeBubbleGame::drawCharacterSelect() const
             drawChibiCharacter(style, { static_cast<float>((left + right) / 2), 310.0f },
                 1.55f, selected, sceneTime_);
         }
-        drawCenteredText(styleName(style), (left + right) / 2, 462, 19,
+        drawCenteredText(styleName(style), (left + right) / 2, 456, 19,
             selected ? styleColor(style) : Palette::Ink, true);
-
-        drawSmallIcon(left + 18, 500, PowerUpType::BubbleCapacity, 1);
-        drawSmallIcon(left + 76, 500, PowerUpType::BlastRange, 2);
-        drawSmallIcon(left + 134, 500, PowerUpType::Speed, 0);
+        drawCenteredText(profile.role, (left + right) / 2, 484, 16, Palette::AquaDark, true);
+        drawCenteredText(L"生命 " + std::to_wstring(profile.lives)
+            + L"  移速 " + std::to_wstring(static_cast<int>(profile.moveSpeed)),
+            (left + right) / 2, 508, 14, Palette::Ink);
+        drawSmallIcon(itemIcons_, left + 18, 538, PowerUpType::BubbleCapacity, profile.bubbleCapacity);
+        drawSmallIcon(itemIcons_, left + 76, 538, PowerUpType::BlastRange, profile.blastRange);
+        drawSmallIcon(itemIcons_, left + 134, 538, PowerUpType::Shield, profile.shieldCharges);
     }
 
     drawButton(282, 618, 678, 674, L"确认选择", true, styleColor(styleFromIndex(characterIndex_)));
-    drawCenteredText(L"← → 切换    Enter 确认    Esc 返回", 480, 687, 17, Palette::Ink);
+    drawCenteredText(L"鼠标选择并确认 / ← → 切换 / Esc 返回", 480, 687, 17, Palette::Ink);
 }
 
 void MoeBubbleGame::drawInstructions() const
@@ -1172,15 +1270,15 @@ void MoeBubbleGame::drawInstructions() const
         drawTextAt(rules[index], 508, 237 + index * 70, 17, Palette::Ink);
     }
 
-    drawSmallIcon(190, 526, PowerUpType::BubbleCapacity, 1);
-    drawSmallIcon(286, 526, PowerUpType::BlastRange, 2);
-    drawSmallIcon(382, 526, PowerUpType::Speed, 0);
-    drawSmallIcon(478, 526, PowerUpType::Shield, 0);
+    drawSmallIcon(itemIcons_, 190, 526, PowerUpType::BubbleCapacity, 1);
+    drawSmallIcon(itemIcons_, 286, 526, PowerUpType::BlastRange, 2);
+    drawSmallIcon(itemIcons_, 382, 526, PowerUpType::Speed, 0);
+    drawSmallIcon(itemIcons_, 478, 526, PowerUpType::Shield, 0);
     drawTextAt(L"容量", 188, 580, 17, Palette::Ink);
     drawTextAt(L"范围", 284, 580, 17, Palette::Ink);
     drawTextAt(L"速度", 380, 580, 17, Palette::Ink);
     drawTextAt(L"护盾", 476, 580, 17, Palette::Ink);
-    drawCenteredText(L"按 Enter 或 Esc 返回", 480, 632, 20, Palette::AquaDark, true);
+    drawButton(330, 612, 630, 666, L"返回", true, Palette::Aqua);
 }
 
 void MoeBubbleGame::drawGameplay() const
@@ -1191,7 +1289,19 @@ void MoeBubbleGame::drawGameplay() const
 
     drawPanel(24, 16, 684, 64, Palette::White, 16, true);
     drawTextAt(L"第 " + std::to_wstring(level_) + L" / 3 关", 44, 27, 20, Palette::Ink, true);
-    drawCenteredText(L"剩余敌人  " + std::to_wstring(enemies_.size()), 352, 27, 20, Palette::PurpleDark, true);
+    const Enemy* boss = nullptr;
+    for (const std::unique_ptr<Enemy>& enemy : enemies_)
+    {
+        if (enemy->active() && enemy->isBoss())
+        {
+            boss = enemy.get();
+            break;
+        }
+    }
+    const std::wstring enemyStatus = boss != nullptr
+        ? L"首领 HP  " + std::to_wstring(boss->health()) + L" / " + std::to_wstring(boss->maxHealth())
+        : L"剩余敌人  " + std::to_wstring(enemies_.size());
+    drawCenteredText(enemyStatus, 352, 27, 20, Palette::PurpleDark, true);
     const std::wstring scoreText = L"分数  " + std::to_wstring(score_);
     setUiFont(20, true);
     drawTextAt(scoreText, 664 - textwidth(scoreText.c_str()), 27, 20, Palette::Honey, true);
@@ -1227,16 +1337,16 @@ void MoeBubbleGame::drawHud() const
     }
     drawCenteredText(styleName(player_.style()), 822, 182, 19, styleColor(player_.style()), true);
     drawTextAt(L"生命", 730, 220, 18, Palette::Ink, true);
-    for (int index = 0; index < 3; ++index)
+    for (int index = 0; index < GameConfig::MaxPlayerLives; ++index)
     {
-        drawHeart(800 + index * 38, 231, index < player_.lives());
+        drawHeart(786 + index * 34, 231, index < player_.lives());
     }
 
     drawTextAt(L"强化状态", 730, 274, 18, Palette::Ink, true);
-    drawSmallIcon(730, 306, PowerUpType::BubbleCapacity, player_.bubbleCapacity());
-    drawSmallIcon(794, 306, PowerUpType::BlastRange, player_.blastRange());
-    drawSmallIcon(858, 306, PowerUpType::Speed, player_.speedLevel());
-    drawSmallIcon(730, 364, PowerUpType::Shield, player_.shieldCharges());
+    drawSmallIcon(itemIcons_, 730, 306, PowerUpType::BubbleCapacity, player_.bubbleCapacity());
+    drawSmallIcon(itemIcons_, 794, 306, PowerUpType::BlastRange, player_.blastRange());
+    drawSmallIcon(itemIcons_, 858, 306, PowerUpType::Speed, player_.movementSpeed());
+    drawSmallIcon(itemIcons_, 730, 364, PowerUpType::Shield, player_.shieldCharges());
 
     drawPanel(730, 432, 914, 508, RGB(239, 249, 250), 14, false);
     drawCenteredText(L"本关目标", 822, 442, 17, Palette::AquaDark, true);

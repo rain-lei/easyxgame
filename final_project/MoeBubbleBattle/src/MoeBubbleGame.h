@@ -86,6 +86,7 @@ private:
     InputManager input_;
     AudioManager audio_;
     PortraitAtlas portraits_;
+    ItemIconAtlas itemIcons_;
     GameMap map_;
     Player player_;
     std::vector<std::unique_ptr<Enemy>> enemies_;
@@ -101,6 +102,9 @@ private:
     CharacterStyle selectedStyle_ = CharacterStyle::Bear;
     bool running_ = true;
     bool windowOpened_ = false;
+    int mouseX_ = -1;
+    int mouseY_ = -1;
+    bool mouseLeftPressed_ = false;
     int menuIndex_ = 0;
     int characterIndex_ = 0;
     int pauseIndex_ = 0;
@@ -161,4 +165,6 @@ private:
     void drawExitConfirmOverlay() const;
 
     void moveMenuSelection(int& index, int itemCount, int direction);
+    bool mouseInside(int left, int top, int right, int bottom) const;
+    bool mouseSelects(int& index, int candidate, int left, int top, int right, int bottom);
 };

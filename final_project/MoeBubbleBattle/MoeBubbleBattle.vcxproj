@@ -49,11 +49,13 @@
     <None Include="AUDIO_DESIGN.md" />
     <None Include="README.md" />
     <None Include="TEST_PLAN.md" />
+    <None Include="STORY_APPENDIX.md" />
     <None Include=".gitignore" />
     <None Include="assets\concepts\chibi_character_concepts.png" />
     <None Include="assets\sprites\player_walk_sheet.png" />
     <None Include="assets\sprites\player_walk_sheet_source.png" />
     <None Include="assets\ui\ui_overview_v1.png" />
+    <None Include="assets\ui\item_icons_v1.png" />
     <None Include="assets\audio\bgm_menu.wav" />
     <None Include="assets\audio\bgm_game.wav" />
     <None Include="assets\audio\sfx_menu_move.wav" />
@@ -69,6 +71,7 @@
     <AudioAsset Include="assets\audio\*.wav" />
     <ImageAsset Include="assets\concepts\*.png" />
     <SpriteAsset Include="assets\sprites\player_walk_sheet.png" />
+    <UiAsset Include="assets\ui\item_icons_v1.png" />
   </ItemGroup>
   <Target Name="CopyAudioAssets" AfterTargets="Build">
     <MakeDir Directories="$(OutDir)assets\audio" />
@@ -77,6 +80,8 @@
     <Copy SourceFiles="@(ImageAsset)" DestinationFolder="$(OutDir)assets\concepts" SkipUnchangedFiles="true" />
     <MakeDir Directories="$(OutDir)assets\sprites" />
     <Copy SourceFiles="@(SpriteAsset)" DestinationFolder="$(OutDir)assets\sprites" SkipUnchangedFiles="true" />
+    <MakeDir Directories="$(OutDir)assets\ui" />
+    <Copy SourceFiles="@(UiAsset)" DestinationFolder="$(OutDir)assets\ui" SkipUnchangedFiles="true" />
   </Target>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

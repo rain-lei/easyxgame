@@ -50,3 +50,4 @@ Desktop.ini
 
 # Generated chroma-key intermediate; keep the transparent final sprite
 **/assets/sprites/*_source.png
+**/assets/ui/*_source.png

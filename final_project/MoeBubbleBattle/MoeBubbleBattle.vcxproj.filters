@@ -21,9 +21,11 @@
     <None Include="AUDIO_DESIGN.md"><Filter>设计资料</Filter></None>
     <None Include="README.md"><Filter>设计资料</Filter></None>
     <None Include="TEST_PLAN.md"><Filter>设计资料</Filter></None>
+    <None Include="STORY_APPENDIX.md"><Filter>设计资料</Filter></None>
     <None Include=".gitignore"><Filter>设计资料</Filter></None>
     <None Include="assets\concepts\chibi_character_concepts.png"><Filter>设计资料</Filter></None>
     <None Include="assets\ui\ui_overview_v1.png"><Filter>设计资料</Filter></None>
+    <None Include="assets\ui\item_icons_v1.png"><Filter>设计资料</Filter></None>
     <None Include="assets\audio\bgm_menu.wav"><Filter>设计资料</Filter></None>
     <None Include="assets\audio\bgm_game.wav"><Filter>设计资料</Filter></None>
     <None Include="assets\audio\sfx_menu_move.wav"><Filter>设计资料</Filter></None>
