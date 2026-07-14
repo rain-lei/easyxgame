@@ -310,6 +310,13 @@ def set_repeat_table_header(row) -> None:
     tr_pr.append(tbl_header)
 
 
+def keep_table_row_together(row) -> None:
+    """Prevent Word from splitting one logical table row across two pages."""
+    tr_pr = row._tr.get_or_add_trPr()
+    if tr_pr.find(qn("w:cantSplit")) is None:
+        tr_pr.append(OxmlElement("w:cantSplit"))
+
+
 def add_stl_table(document: Document, before: Paragraph) -> None:
     caption = new_paragraph_before(before, "表2.1 STL数据结构与操作数据")
     caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -340,6 +347,7 @@ def add_stl_table(document: Document, before: Paragraph) -> None:
             set_cell_text(cells[index], value, index == 0, 9.5)
     widths = [Inches(1.35), Inches(2.05), Inches(2.25)]
     for row in table.rows:
+        keep_table_row_together(row)
         for index, width in enumerate(widths):
             row.cells[index].width = width
 
@@ -379,6 +387,8 @@ def fill_test_table(table) -> None:
         for column_index, value in enumerate(values):
             set_cell_text(table.rows[row_index].cells[column_index], value,
                           column_index in (0, 3, 5), 8.5)
+    for row in table.rows:
+        keep_table_row_together(row)
 
 
 def count_han(texts: list[str]) -> int:
@@ -485,16 +495,6 @@ def build_report(args) -> Path:
         set_body(first, paragraphs[0])
         for text in paragraphs[1:]:
             add_body_before(next_heading, text)
-
-    # The second occurrence of “同上” belongs to 1.2.2 and is filled explicitly.
-    h122 = paragraph_by_text(document, "1.2.2 难点和解决办法")
-    h123 = paragraph_by_text(document, "1.2.3 学习案例")
-    between = [p for p in document.paragraphs if p._p.getparent() is h122._p.getparent()
-               and h122._p.getparent().index(h122._p) < h122._p.getparent().index(p._p)
-               < h122._p.getparent().index(h123._p)]
-    set_body(between[0], week2_difficult[0])
-    for text in week2_difficult[1:]:
-        add_body_before(h123, text)
 
     h113 = paragraph_by_text(document, "1.1.3 学习案例")
     h12 = next(p for p in document.paragraphs if p.text.startswith("1.2 第二周"))
