@@ -46,6 +46,7 @@ EasyxGame参考/Software/
 *.temp
 *.bak
 *.swp
+__pycache__/
 Thumbs.db
 Desktop.ini
 
