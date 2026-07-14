@@ -1,4 +1,5 @@
 #include <graphics.h>
+#include <string>
 
 class GobangBoard
 {
@@ -8,6 +9,14 @@ public:
         openWindow();
         draw();
         waitForKeyPress();
+        closegraph();
+    }
+
+    void captureReportScreenshot() const
+    {
+        openWindow();
+        draw();
+        saveimage(L"report_screenshot.png");
         closegraph();
     }
 
@@ -71,9 +80,14 @@ private:
     }
 };
 
-int main()
+int main(int argc, char* argv[])
 {
     GobangBoard board;
+    if (argc > 1 && std::string(argv[1]) == "--capture-report")
+    {
+        board.captureReportScreenshot();
+        return 0;
+    }
     board.run();
     return 0;
 }

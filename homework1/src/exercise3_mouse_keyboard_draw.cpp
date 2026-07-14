@@ -1,5 +1,7 @@
 #include <graphics.h>
 #include <imm.h>
+#include <string>
+#include <tchar.h>
 
 #pragma comment(lib, "imm32.lib")
 
@@ -41,6 +43,23 @@ public:
     {
         openWindow();
         processMessages();
+        EndBatchDraw();
+        closegraph();
+    }
+
+    void captureReportScreenshot() const
+    {
+        openWindow();
+        square_.draw(150, 150, 42, RGB(102, 213, 232));
+        circle_.draw(280, 210, 34, RGB(255, 143, 130));
+        square_.draw(430, 330, 68, RGB(145, 216, 191));
+        circle_.draw(620, 400, 48, RGB(245, 199, 104));
+        setbkmode(TRANSPARENT);
+        settextcolor(WHITE);
+        settextstyle(24, 0, _T("Microsoft YaHei UI"));
+        outtextxy(28, 28, _T("左键：正方形   右键：圆形   R/G/B/W：切换颜色   Ctrl：放大"));
+        FlushBatchDraw();
+        saveimage(L"report_screenshot.png");
         EndBatchDraw();
         closegraph();
     }
@@ -133,9 +152,14 @@ private:
     }
 };
 
-int main()
+int main(int argc, char* argv[])
 {
     DrawingApp app;
+    if (argc > 1 && std::string(argv[1]) == "--capture-report")
+    {
+        app.captureReportScreenshot();
+        return 0;
+    }
     app.run();
     return 0;
 }

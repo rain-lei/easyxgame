@@ -332,6 +332,52 @@ int MoeBubbleGame::run()
     return 0;
 }
 
+int MoeBubbleGame::captureReportScreenshots(const std::filesystem::path& outputDirectory)
+{
+    std::filesystem::create_directories(outputDirectory);
+    openWindow();
+
+    auto capture = [&](const wchar_t* filename)
+    {
+        render();
+        FlushBatchDraw();
+        const std::filesystem::path path = outputDirectory / filename;
+        saveimage(path.c_str());
+    };
+
+    scene_ = SceneState::MainMenu;
+    sceneTime_ = 0.8f;
+    capture(L"game_main_menu.png");
+
+    scene_ = SceneState::CharacterSelect;
+    characterIndex_ = static_cast<int>(CharacterStyle::Cat);
+    capture(L"game_character_select.png");
+
+    selectedStyle_ = CharacterStyle::Bear;
+    startNewGame();
+    player_.update(1.3f);
+    powerUps_.clear();
+    powerUps_.emplace_back(GridPos{ 1, 3 }, PowerUpType::BlastRange, &itemIcons_);
+    powerUps_.emplace_back(GridPos{ 1, 5 }, PowerUpType::BubbleCapacity, &itemIcons_);
+    powerUps_.emplace_back(GridPos{ 1, 7 }, PowerUpType::Speed, &itemIcons_);
+    powerUps_.emplace_back(GridPos{ 1, 9 }, PowerUpType::Shield, &itemIcons_);
+    capture(L"game_level1_items.png");
+
+    setupLevel(3);
+    player_.update(1.3f);
+    scene_ = SceneState::Playing;
+    capture(L"game_level3_boss.png");
+
+    scene_ = SceneState::Victory;
+    score_ = 8650;
+    statistics_.cratesDestroyed = 37;
+    statistics_.powerUpsCollected = 11;
+    statistics_.enemiesDefeated = 9;
+    statistics_.elapsedTime = 287.0f;
+    capture(L"game_victory.png");
+    return 0;
+}
+
 void MoeBubbleGame::openWindow()
 {
     initgraph(GameConfig::WindowWidth, GameConfig::WindowHeight, EW_NOCLOSE);

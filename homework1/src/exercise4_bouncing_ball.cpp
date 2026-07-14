@@ -3,6 +3,7 @@
 #include <cmath>
 #include <imm.h>
 #include <tchar.h>
+#include <string>
 
 #pragma comment(lib, "imm32.lib")
 
@@ -167,6 +168,16 @@ public:
         closegraph();
     }
 
+    void captureReportScreenshot() const
+    {
+        openWindow();
+        drawScene();
+        FlushBatchDraw();
+        saveimage(L"report_screenshot.png");
+        EndBatchDraw();
+        closegraph();
+    }
+
 private:
     static constexpr int windowWidth = 800;
     static constexpr int windowHeight = 600;
@@ -262,9 +273,14 @@ private:
     }
 };
 
-int main()
+int main(int argc, char* argv[])
 {
     BouncingBallGame game;
+    if (argc > 1 && std::string(argv[1]) == "--capture-report")
+    {
+        game.captureReportScreenshot();
+        return 0;
+    }
     game.run();
     return 0;
 }

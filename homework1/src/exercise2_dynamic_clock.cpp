@@ -2,6 +2,7 @@
 #include <cmath>
 #include <cstdio>
 #include <tchar.h>
+#include <string>
 
 class ClockHand
 {
@@ -55,6 +56,17 @@ public:
             }
         }
 
+        EndBatchDraw();
+        closegraph();
+    }
+
+    void captureReportScreenshot() const
+    {
+        initgraph(windowWidth, windowHeight);
+        BeginBatchDraw();
+        drawCurrentTime();
+        FlushBatchDraw();
+        saveimage(L"report_screenshot.png");
         EndBatchDraw();
         closegraph();
     }
@@ -160,9 +172,14 @@ private:
     }
 };
 
-int main()
+int main(int argc, char* argv[])
 {
     DynamicClock clock;
+    if (argc > 1 && std::string(argv[1]) == "--capture-report")
+    {
+        clock.captureReportScreenshot();
+        return 0;
+    }
     clock.run();
     return 0;
 }

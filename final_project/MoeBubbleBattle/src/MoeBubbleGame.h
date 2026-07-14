@@ -81,6 +81,7 @@ public:
     ~MoeBubbleGame();
 
     int run();
+    int captureReportScreenshots(const std::filesystem::path& outputDirectory);
 
 private:
     InputManager input_;

@@ -62,6 +62,25 @@
 
 其中 `GameObject`、`Character` 和 `Enemy` 使用虚函数体现运行时多态；`Player`、`PatrolEnemy`、`HunterEnemy`、`BossEnemy` 通过继承复用角色能力；地图、对象容器和游戏状态由 `MoeBubbleGame` 组合管理。
 
+### 5.1 面向对象三大特性落实
+
+- **封装**：`GameMap` 将地图数组 `tiles_` 设为私有数据，只通过 `tileAt`、`isWalkable`、`destroyCrate` 等公开方法访问；`Player` 将生命、速度、水泡容量、爆破范围和护盾封装为私有状态，只能通过 `takeDamage`、`applyPowerUp`、`onBubblePlaced` 等行为修改。调用者不直接改写对象内部数据，状态约束集中在类内完成。
+- **继承**：`GameObject` 是统一的可更新、可绘制对象接口；`Character` 继承它并复用位置、速度、碰撞与移动能力；`Player` 和抽象类 `Enemy` 再继承 `Character`；`PatrolEnemy`、`HunterEnemy`、`BossEnemy` 继承 `Enemy`，只实现各自差异化的决策和表现。
+- **多态**：`MoeBubbleGame` 使用 `std::vector<std::unique_ptr<Enemy>>` 保存不同派生敌人，通过 `Enemy*` 统一调用虚函数 `draw`、`chooseDirection`、`takeWaveHit`、`scoreValue`、`health`。第三关 Boss 无需让主循环针对具体类型重复编写更新和碰撞逻辑，运行时会自动调用派生类实现。
+
+### 5.2 STL 数据结构与算法
+
+| STL 组件 | 保存或处理的数据 | 选用原因 |
+| --- | --- | --- |
+| `std::array<TileType, 195>` | 15×13 固定地图格 | 容量编译期确定、连续存储、无动态分配 |
+| `std::array<bool, 256>` | 当前帧、上一帧和短按键盘状态 | 虚拟键码范围固定，可按键码 O(1) 访问 |
+| `std::vector<WaterBubble>` 等 | 水泡、水浪、道具、粒子和危险格 | 游戏过程中数量动态变化，便于追加、遍历和批量删除失效对象 |
+| `std::vector<std::unique_ptr<Enemy>>` | 巡逻、追踪和 Boss 三类异构敌人 | 结合 RAII 自动管理生命周期，并支持基类指针运行时多态 |
+| `std::mt19937` 与标准分布 | 地图木箱、道具掉落、AI 方向和粒子参数 | 随机状态独立封装，固定种子便于复现实验和测试 |
+| `<algorithm>` | `find`、`count`、`clamp`、`remove_if`、`min_element` | 用标准算法表达查找、边界约束、清理和 AI 评分，减少手写循环错误 |
+
+对象清理采用擦除-移除模式：先由 `std::remove_if` 把失效对象移动到容器尾部，再调用 `erase` 释放尾部元素。敌人容器中的 `unique_ptr` 会随元素删除自动释放派生对象，避免手工 `delete` 和内存泄漏。
+
 ## 6. 状态流程
 
 `主菜单 → 操作说明/开始游戏 → 游戏中 ↔ 暂停 → 关卡完成 → 下一关 → 最终胜利`
