@@ -20,3 +20,24 @@
 - 提交源码、解决方案、原创图片、原创音频和 Markdown 设计文档。
 - 不提交 `.vs`、`build`、`Debug`、`Release`、中间目标文件和本地可执行文件。
 - 最终提交压缩包、报告和演示视频在完成后单独归档，不直接放入 Git 历史。
+
+## 最终打包
+
+录制并转换好本人讲解的 720P `.flv` 视频后，在仓库根目录执行：
+
+```powershell
+python tools\package_submission.py `
+  --sequence 序号 `
+  --student-id 学号 `
+  --student-name 姓名 `
+  --teacher 任课教师 `
+  --material-link "材料链接" `
+  --video "本人讲解视频.flv"
+```
+
+脚本会生成 `dist/序号-学号-姓名-萌泡大作战/` 和外部的
+`dist/序号-学号-姓名.zip`，自动排除 `.vs`、`x64`、`build`、编译中间文件，
+并调用本机 Microsoft Word 将报告转换为老师要求的真正 Word 97-2003
+`程序设计课程实践报告-姓名.doc`。如需同时保留新版 Word 备份，可添加
+`--keep-docx`。最终提交前仍需从 ZIP 解压后试运行程序、播放视频并检查
+`.doc` 打印预览。

@@ -7,7 +7,9 @@ import argparse
 import shutil
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
+from pathlib import PurePosixPath
 
 
 WORKSPACE = Path(__file__).resolve().parents[1]
@@ -15,6 +17,7 @@ PROJECT = WORKSPACE / "final_project" / "MoeBubbleBattle"
 DIST = WORKSPACE / "dist"
 GENERATOR = PROJECT / "tools" / "generate_report.py"
 AUDITOR = PROJECT / "tools" / "audit_report.py"
+WORD_CONVERTER = WORKSPACE / "tools" / "word_save_as_doc.vbs"
 
 IGNORED_NAMES = {
     ".git", ".vs", "build", "dist", "Debug", "Release", "x64",
@@ -39,6 +42,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--teacher", required=True, type=nonempty, help="任课教师")
     parser.add_argument("--material-link", required=True, type=nonempty, help="百度网盘链接或老师认可的材料链接")
     parser.add_argument("--video", required=True, type=Path, help="本人讲解的 720P FLV 视频")
+    parser.add_argument(
+        "--keep-docx",
+        action="store_true",
+        help="除老师要求的 .doc 外，额外保留一份同名 .docx 备份",
+    )
     parser.add_argument("--force", action="store_true", help="覆盖 dist 中同名的旧提交目录和 ZIP")
     return parser.parse_args()
 
@@ -87,6 +95,63 @@ def run_checked(arguments: list[str]) -> None:
         raise RuntimeError(f"command failed ({completed.returncode}): {' '.join(arguments)}")
 
 
+def convert_docx_to_doc(source: Path, destination: Path) -> None:
+    """Use Microsoft Word to create a real Word 97-2003 .doc file."""
+    cscript = shutil.which("cscript.exe") or shutil.which("cscript")
+    if cscript is None:
+        raise RuntimeError("未找到 cscript，无法按老师要求生成真正的 .doc 报告")
+    if not WORD_CONVERTER.is_file():
+        raise FileNotFoundError(WORD_CONVERTER)
+
+    run_checked([
+        cscript,
+        "//nologo",
+        str(WORD_CONVERTER),
+        str(source.resolve()),
+        str(destination.resolve()),
+    ])
+    if not destination.is_file():
+        raise RuntimeError("Word 转换结束，但没有生成 .doc 文件")
+
+    # Legacy binary Word documents are OLE compound files.  This prevents an
+    # accidental extension-only rename from passing the packaging gate.
+    ole_signature = bytes.fromhex("D0 CF 11 E0 A1 B1 1A E1")
+    if destination.read_bytes()[:8] != ole_signature:
+        raise RuntimeError("生成文件不是真正的 Word 97-2003 .doc 格式")
+
+
+def audit_zip(archive: Path, folder_name: str, report_name: str, video_name: str) -> None:
+    """Verify archive integrity, root naming, required files and clean contents."""
+    with zipfile.ZipFile(archive) as zipped:
+        damaged = zipped.testzip()
+        if damaged is not None:
+            raise RuntimeError(f"ZIP CRC 校验失败: {damaged}")
+
+        infos = zipped.infolist()
+        names = [info.filename for info in infos]
+        roots = {PurePosixPath(name).parts[0] for name in names if name}
+        if roots != {folder_name}:
+            raise RuntimeError(f"ZIP 顶层目录错误: {sorted(roots)}")
+
+        prefix = f"{folder_name}/"
+        required = {prefix + report_name, prefix + video_name}
+        missing = required.difference(names)
+        if missing:
+            raise RuntimeError(f"ZIP 缺少必交文件: {sorted(missing)}")
+
+        bad_entries: list[str] = []
+        for info in infos:
+            parts = PurePosixPath(info.filename).parts
+            if any(is_ignored_name(part) for part in parts):
+                bad_entries.append(info.filename)
+            if info.filename.casefold().endswith((".obj", ".pdb", ".ilk", ".tlog", ".idb", ".user", ".suo")):
+                bad_entries.append(info.filename)
+            if any(ord(char) > 127 for char in info.filename) and not info.flag_bits & 0x800:
+                bad_entries.append(f"{info.filename} (中文文件名未标记 UTF-8)")
+        if bad_entries:
+            raise RuntimeError(f"ZIP 内容不合规: {bad_entries[:10]}")
+
+
 def main() -> int:
     args = parse_args()
     video = args.video.resolve()
@@ -115,25 +180,31 @@ def main() -> int:
     copy_tree(PROJECT, game_destination)
     safe_remove(game_destination / "report")
 
-    report_path = submission / f"程序设计课程实践报告-{args.student_name}.docx"
+    report_docx = submission / f"程序设计课程实践报告-{args.student_name}.docx"
+    report_doc = submission / f"程序设计课程实践报告-{args.student_name}.doc"
     run_checked([
         sys.executable, str(GENERATOR),
-        "--output", str(report_path),
+        "--output", str(report_docx),
         "--sequence", args.sequence,
         "--student-id", args.student_id,
         "--student-name", args.student_name,
         "--teacher", args.teacher,
         "--material-link", args.material_link,
     ])
-    run_checked([sys.executable, str(AUDITOR), "--report", str(report_path), "--expect-filled"])
+    run_checked([sys.executable, str(AUDITOR), "--report", str(report_docx), "--expect-filled"])
+    convert_docx_to_doc(report_docx, report_doc)
+    if not args.keep_docx:
+        report_docx.unlink()
 
-    shutil.copy2(video, submission / f"项目汇报视频-{args.student_name}.flv")
+    video_name = f"项目汇报视频-{args.student_name}.flv"
+    shutil.copy2(video, submission / video_name)
     ensure_clean_tree(submission)
     shutil.make_archive(str(archive_base), "zip", root_dir=DIST, base_dir=folder_name)
+    audit_zip(archive_path, folder_name, report_doc.name, video_name)
 
     print(f"SUBMISSION_FOLDER {submission}")
     print(f"ARCHIVE {archive_path}")
-    print("REMINDER 更新 Word 目录、检查打印预览，并从 ZIP 解压后完整试运行和播放视频。")
+    print("REMINDER 检查 .doc 打印预览，并从 ZIP 解压后完整试运行和播放视频。")
     return 0
 
 
