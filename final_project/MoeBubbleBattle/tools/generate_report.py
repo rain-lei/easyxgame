@@ -513,6 +513,18 @@ def build_report(args) -> Path:
     case2_placeholder = next(p for p in document.paragraphs
                              if h123._p.getparent().index(h123._p) < h123._p.getparent().index(p._p)
                              < h123._p.getparent().index(h2._p))
+    # 模板在此处留下了一个没有内容的手工分页符。替换占位文字后若继续保留它，
+    # 会让案例文字独占一页而图片被推到下一页，因此仅移除这一处空白分页段落。
+    manual_break = next(
+        (p for p in document.paragraphs
+         if h123._p.getparent().index(h123._p) < h123._p.getparent().index(p._p)
+         < h123._p.getparent().index(h2._p)
+         and not p.text.strip()
+         and p._p.xpath(".//w:br[@w:type='page']")),
+        None,
+    )
+    if manual_break is not None:
+        manual_break._element.getparent().remove(manual_break._element)
     set_body(case2_placeholder, week2_cases[0])
     add_image_before(h2, REPORT_ASSETS / "exercise_advanced_drawing.png", 5.55)
     add_caption_before(h2, "图1.3 EasyX进阶练习：鼠标键盘绘图")
