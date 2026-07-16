@@ -338,7 +338,7 @@ void Player::draw() const
         }
         else
         {
-            drawChibiCharacter(style_, position_, 0.58f, walking_, animationTime_);
+            drawChibiCharacter(style_, position_, 0.44f, walking_, animationTime_);
         }
     }
 
@@ -371,14 +371,14 @@ void Player::drawSpriteFrame() const
         frame = walkCycle[static_cast<int>(walkAnimationTime_ * 8.0f) % walkCycle.size()];
     }
 
-    // 行由角色外观决定，列由步态阶段决定；裁切坐标与绘制尺寸彼此独立，
-    // 跨步帧可以轻微缩小而不改变原始图集。
+    // 行由角色外观决定，列由步态阶段决定。成品图集中的每帧已经共用脚底基线，
+    // 这里只做 1 像素的方向回中，不再用整张 72 像素图片压住相邻墙格。
     const int row = std::clamp(static_cast<int>(style_), 0, SpriteRows - 1);
-    const int drawSize = frame == 1 ? SpriteCellSize : SpriteCellSize - 4;
+    const int drawSize = frame == 1 ? SpriteDrawSize : SpriteDrawSize - 2;
     const int recenter = frame == 0 ? 1 : (frame == 2 ? -1 : 0);
     const int drawX = pixel(position_.x) - drawSize / 2 + recenter;
-    // 脚底贴近碰撞中心，头部允许覆盖上一格；透明像素不会遮住地图。
-    const int drawY = pixel(position_.y) + 25 - drawSize;
+    // 可见矩形严格落在 44 像素通道内，人物不会再穿到上下左右墙块。
+    const int drawY = pixel(position_.y) - drawSize / 2;
     const int sourceX = frame * SpriteCellSize;
     const int sourceY = row * SpriteCellSize;
     drawAlphaSubImage(spriteSheet_, sourceX, sourceY, SpriteCellSize, SpriteCellSize,
@@ -601,8 +601,26 @@ void Player::onBubbleExpired()
 
 // ---------------- 敌人继承体系与运行时多态 ----------------
 
-Enemy::Enemy(int id, Vec2 position, float speed)
-    : Character(id, position, 14.0f, speed)
+bool EnemySpriteAtlas::load(const std::filesystem::path& imagePath)
+{
+    const std::wstring path = imagePath.wstring();
+    loaded_ = loadimage(&atlas_, path.c_str(), CellSize * 3, CellSize, true) == 0;
+    return loaded_;
+}
+
+void EnemySpriteAtlas::draw(int column, int centerX, int centerY, int size) const
+{
+    if (!loaded_)
+    {
+        return;
+    }
+    column = std::clamp(column, 0, 2);
+    drawAlphaSubImage(atlas_, column * CellSize, 0, CellSize, CellSize,
+        centerX - size / 2, centerY - size / 2, size, size);
+}
+
+Enemy::Enemy(int id, Vec2 position, float speed, const EnemySpriteAtlas* sprites)
+    : Character(id, position, 14.0f, speed), sprites_(sprites)
 {
 }
 
@@ -685,8 +703,8 @@ bool Enemy::isDangerous(const GridPos& cell,
     return containsCell(dangerousCells, cell);
 }
 
-PatrolEnemy::PatrolEnemy(int id, Vec2 position, float speed)
-    : Enemy(id, position, speed)
+PatrolEnemy::PatrolEnemy(int id, Vec2 position, float speed, const EnemySpriteAtlas* sprites)
+    : Enemy(id, position, speed, sprites)
 {
 }
 
@@ -694,6 +712,11 @@ void PatrolEnemy::draw() const
 {
     const int x = pixel(position_.x);
     const int y = pixel(position_.y + std::sin(animationTime_ * 6.0f) * 1.6f);
+    if (sprites_ != nullptr && sprites_->loaded())
+    {
+        sprites_->draw(0, x, y, 38);
+        return;
+    }
     setlinecolor(Palette::PurpleDark);
     setfillcolor(Palette::Purple);
     solidellipse(x - 15, y - 12, x + 15, y + 14);
@@ -747,8 +770,8 @@ Vec2 PatrolEnemy::chooseDirection(const GameMap& map,
     return options[choose(randomEngine)];
 }
 
-HunterEnemy::HunterEnemy(int id, Vec2 position, float speed)
-    : Enemy(id, position, speed)
+HunterEnemy::HunterEnemy(int id, Vec2 position, float speed, const EnemySpriteAtlas* sprites)
+    : Enemy(id, position, speed, sprites)
 {
 }
 
@@ -756,6 +779,11 @@ void HunterEnemy::draw() const
 {
     const int x = pixel(position_.x);
     const int y = pixel(position_.y + std::sin(animationTime_ * 7.0f) * 1.8f);
+    if (sprites_ != nullptr && sprites_->loaded())
+    {
+        sprites_->draw(1, x, y, 40);
+        return;
+    }
     setlinecolor(RGB(123, 64, 77));
     setfillcolor(Palette::Coral);
     solidellipse(x - 15, y - 13, x + 15, y + 14);
@@ -803,8 +831,10 @@ Vec2 HunterEnemy::chooseDirection(const GameMap& map,
     });
 }
 
-BossEnemy::BossEnemy(int id, Vec2 position, float speed, int maxHealth)
-    : Enemy(id, position, speed), health_(std::max(1, maxHealth)), maxHealth_(std::max(1, maxHealth))
+BossEnemy::BossEnemy(int id, Vec2 position, float speed, int maxHealth,
+    const EnemySpriteAtlas* sprites)
+    : Enemy(id, position, speed, sprites),
+      health_(std::max(1, maxHealth)), maxHealth_(std::max(1, maxHealth))
 {
     radius_ = 17.0f;
 }
@@ -820,6 +850,30 @@ void BossEnemy::draw() const
     const int x = pixel(position_.x);
     const int y = pixel(position_.y + std::sin(animationTime_ * 5.0f) * 1.2f);
     const COLORREF body = hitCooldown_ > 0.0f ? RGB(211, 166, 235) : RGB(112, 73, 155);
+
+    if (sprites_ != nullptr && sprites_->loaded())
+    {
+        if (hitCooldown_ > 0.0f)
+        {
+            setlinecolor(Palette::Coral);
+            setlinestyle(PS_SOLID, 3);
+            circle(x, y, 30);
+            setlinestyle(PS_SOLID, 1);
+        }
+        sprites_->draw(2, x, y, 58);
+
+        const int barLeft = x - 24;
+        const int barRight = x + 24;
+        const int barTop = y - 38;
+        setfillcolor(Palette::Shadow);
+        solidrectangle(barLeft, barTop, barRight, barTop + 5);
+        setfillcolor(Palette::Danger);
+        const int filled = barLeft + (barRight - barLeft) * health_ / maxHealth_;
+        solidrectangle(barLeft, barTop, filled, barTop + 5);
+        setlinecolor(Palette::Ink);
+        rectangle(barLeft, barTop, barRight, barTop + 5);
+        return;
+    }
 
     setlinecolor(Palette::PurpleDark);
     setfillcolor(body);

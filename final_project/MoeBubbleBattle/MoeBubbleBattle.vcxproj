@@ -53,6 +53,7 @@
     <None Include=".gitignore" />
     <None Include="assets\concepts\chibi_character_concepts.png" />
     <None Include="assets\sprites\player_walk_sheet.png" />
+    <None Include="assets\sprites\enemy_sprites_v1.png" />
     <None Include="assets\sprites\player_walk_sheet_source.png" />
     <None Include="assets\ui\ui_overview_v1.png" />
     <None Include="assets\ui\item_icons_v1.png" />
@@ -66,11 +67,12 @@
     <None Include="assets\audio\sfx_hit.wav" />
     <None Include="assets\audio\sfx_level_clear.wav" />
     <None Include="tools\generate_audio.py" />
+    <None Include="tools\prepare_generated_assets.py" />
   </ItemGroup>
   <ItemGroup>
     <AudioAsset Include="assets\audio\*.wav" />
     <ImageAsset Include="assets\concepts\*.png" />
-    <SpriteAsset Include="assets\sprites\player_walk_sheet.png" />
+    <SpriteAsset Include="assets\sprites\*.png" />
     <UiAsset Include="assets\ui\item_icons_v1.png" />
   </ItemGroup>
   <Target Name="CopyAudioAssets" AfterTargets="Build">

@@ -96,6 +96,7 @@ private:
     AudioManager audio_;
     PortraitAtlas portraits_;
     ItemIconAtlas itemIcons_;
+    EnemySpriteAtlas enemySprites_;
     GameMap map_;
     Player player_;
     // 动态对象使用 STL 容器；Enemy 通过基类智能指针实现异构多态和 RAII。

@@ -103,7 +103,8 @@ private:
     // 精灵图为 4 行角色 × 3 列步态，运行时按角色和动画帧裁切。
     static constexpr int SpriteColumns = 3;
     static constexpr int SpriteRows = 4;
-    static constexpr int SpriteCellSize = 72;
+    static constexpr int SpriteCellSize = 96;
+    static constexpr int SpriteDrawSize = GameConfig::TileSize - 4;
 
     // 外观和运动状态。
     CharacterStyle style_ = CharacterStyle::Bear;
@@ -126,11 +127,25 @@ private:
     void drawSpriteFrame() const;
 };
 
+// 三格透明敌人图集统一普通怪、追踪怪和 Boss 的美术资源及缩放规则。
+class EnemySpriteAtlas
+{
+public:
+    bool load(const std::filesystem::path& imagePath);
+    bool loaded() const { return loaded_; }
+    void draw(int column, int centerX, int centerY, int size) const;
+
+private:
+    static constexpr int CellSize = 256;
+    IMAGE atlas_;
+    bool loaded_ = false;
+};
+
 // 敌人抽象基类负责公共移动与避险，派生类只重写决策、绘制或受击差异。
 class Enemy : public Character
 {
 public:
-    Enemy(int id, Vec2 position, float speed);
+    Enemy(int id, Vec2 position, float speed, const EnemySpriteAtlas* sprites);
 
     void update(float deltaTime) override;
     void updateAI(float deltaTime, const GameMap& map,
@@ -145,6 +160,7 @@ public:
     virtual int maxHealth() const { return 1; }
 
 protected:
+    const EnemySpriteAtlas* sprites_ = nullptr;
     Vec2 direction_{ 0.0f, 1.0f };
     float decisionTimer_ = 0.0f;
     float animationTime_ = 0.0f;
@@ -165,7 +181,7 @@ protected:
 class PatrolEnemy final : public Enemy
 {
 public:
-    PatrolEnemy(int id, Vec2 position, float speed);
+    PatrolEnemy(int id, Vec2 position, float speed, const EnemySpriteAtlas* sprites);
     void draw() const override;
 
 protected:
@@ -180,7 +196,7 @@ protected:
 class HunterEnemy final : public Enemy
 {
 public:
-    HunterEnemy(int id, Vec2 position, float speed);
+    HunterEnemy(int id, Vec2 position, float speed, const EnemySpriteAtlas* sprites);
     void draw() const override;
 
 protected:
@@ -195,7 +211,8 @@ protected:
 class BossEnemy final : public Enemy
 {
 public:
-    BossEnemy(int id, Vec2 position, float speed, int maxHealth);
+    BossEnemy(int id, Vec2 position, float speed, int maxHealth,
+        const EnemySpriteAtlas* sprites);
 
     void update(float deltaTime) override;
     void draw() const override;

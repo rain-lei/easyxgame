@@ -471,6 +471,9 @@ void MoeBubbleGame::openWindow()
     const std::filesystem::path itemIconPath = std::filesystem::path(executablePath).parent_path()
         / L"assets" / L"ui" / L"item_icons_v1.png";
     itemIcons_.load(itemIconPath);
+    const std::filesystem::path enemySpritePath = std::filesystem::path(executablePath).parent_path()
+        / L"assets" / L"sprites" / L"enemy_sprites_v1.png";
+    enemySprites_.load(enemySpritePath);
     BeginBatchDraw();
 }
 
@@ -855,16 +858,19 @@ void MoeBubbleGame::setupLevel(int level, bool restoreLevelScore)
     const float patrolSpeed = 66.0f + level_ * 8.0f;
     const float hunterSpeed = 72.0f + level_ * 9.0f;
     // 不同派生敌人统一放入 vector<unique_ptr<Enemy>>，由虚函数决定实际行为。
-    enemies_.push_back(std::make_unique<PatrolEnemy>(enemyId++, cellCenter({ 11, 13 }), patrolSpeed));
-    enemies_.push_back(std::make_unique<PatrolEnemy>(enemyId++, cellCenter({ 1, 13 }), patrolSpeed));
+    enemies_.push_back(std::make_unique<PatrolEnemy>(
+        enemyId++, cellCenter({ 11, 13 }), patrolSpeed, &enemySprites_));
+    enemies_.push_back(std::make_unique<PatrolEnemy>(
+        enemyId++, cellCenter({ 1, 13 }), patrolSpeed, &enemySprites_));
     if (level_ >= 2)
     {
-        enemies_.push_back(std::make_unique<HunterEnemy>(enemyId++, cellCenter({ 11, 1 }), hunterSpeed));
+        enemies_.push_back(std::make_unique<HunterEnemy>(
+            enemyId++, cellCenter({ 11, 1 }), hunterSpeed, &enemySprites_));
     }
     if (level_ >= 3)
     {
         enemies_.push_back(std::make_unique<BossEnemy>(enemyId++, cellCenter({ 9, 13 }),
-            hunterSpeed - 8.0f, GameConfig::BossMaxHealth));
+            hunterSpeed - 8.0f, GameConfig::BossMaxHealth, &enemySprites_));
     }
 
     if (!restoreLevelScore)
