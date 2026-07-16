@@ -1089,8 +1089,8 @@ void PowerUp::draw() const
     const int y = pixel(center.y + std::sin(animationTime_ * 5.0f) * 3.0f);
     if (icons_ != nullptr && icons_->loaded())
     {
-        setfillcolor(RGB(255, 251, 235));
-        solidcircle(pixel(center.x), y, 19);
+        // 图标本身已有深色描边，直接透明绘制能保留拾取物轮廓；不再额外
+        // 叠加浅色圆底，避免在浅色地砖上看起来像没有抠净的背景残片。
         icons_->draw(type_, pixel(center.x), y, 38);
         return;
     }
