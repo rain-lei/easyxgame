@@ -70,6 +70,8 @@ namespace
                 const int sampleX = sourceX + localX * sourceWidth / destinationWidth;
                 const DWORD sourcePixel = source[sampleY * imageWidth + sampleX];
                 const unsigned int alpha = (sourcePixel >> 24) & 0xffu;
+                // 完全透明像素保持目标画面不变；完全不透明像素走快速复制分支，
+                // 只有半透明边缘才执行三个颜色通道的混合计算。
                 if (alpha == 0u)
                 {
                     continue;
@@ -161,6 +163,8 @@ void GameMap::generate(int level)
 
 void GameMap::draw() const
 {
+    // 地图按逻辑网格逐格绘制。地板使用轻微棋盘色差帮助玩家辨认移动格，
+    // 墙和木箱只覆盖格子内部，保留通道边界的连续视觉节奏。
     for (int row = 0; row < GameConfig::MapRows; ++row)
     {
         for (int column = 0; column < GameConfig::MapColumns; ++column)
@@ -214,6 +218,7 @@ bool GameMap::inside(const GridPos& cell) const
 
 TileType GameMap::tileAt(const GridPos& cell) const
 {
+    // 越界统一视为固定墙，传播、移动和 AI 查询无需在调用点重复边界判断。
     return inside(cell) ? tiles_[indexOf(cell)] : TileType::SolidWall;
 }
 
@@ -240,6 +245,7 @@ bool GameMap::isRectWalkable(const RectF& bounds) const
 
 bool GameMap::destroyCrate(const GridPos& cell)
 {
+    // 先验证类型再修改数组，使重复命中同一格不会重复计分或再次生成道具。
     if (tileAt(cell) != TileType::Crate)
     {
         return false;
@@ -260,6 +266,7 @@ Character::Character(int id, Vec2 position, float radius, float speed)
 
 RectF Character::bounds() const
 {
+    // 角色碰撞采用中心点加半径生成 AABB，绘制尺寸可以独立于该逻辑碰撞盒。
     return { position_.x - radius_, position_.y - radius_,
         position_.x + radius_, position_.y + radius_ };
 }
@@ -282,6 +289,7 @@ bool Character::canOccupy(const RectF& candidate, const GameMap& map,
 bool Character::move(const Vec2& direction, float deltaTime, const GameMap& map,
     const std::vector<WaterBubble>& bubbles)
 {
+    // 先归一化输入，保证同时按两个方向时的对角速度不会变成单轴的 sqrt(2) 倍。
     const Vec2 unit = normalized(direction);
     if (lengthSquared(unit) < 0.001f)
     {
@@ -322,6 +330,7 @@ Player::Player()
 
 void Player::update(float deltaTime)
 {
+    // 所有计时器以秒为单位，和帧率无关；窗口卡顿也已在主循环限制 deltaTime。
     invulnerableTimer_ = std::max(0.0f, invulnerableTimer_ - deltaTime);
     // 空闲时也推进动画时钟，避免无敌闪烁停在“隐藏帧”等到移动才恢复。
     animationTime_ += deltaTime;
@@ -329,6 +338,7 @@ void Player::update(float deltaTime)
 
 void Player::draw() const
 {
+    // 受击无敌期间交替跳过整帧绘制，形成闪烁反馈，但碰撞盒和输入仍正常更新。
     const bool hiddenFrame = invulnerable() && static_cast<int>(animationTime_ * 12.0f) % 2 == 0;
     if (!hiddenFrame)
     {
@@ -338,6 +348,7 @@ void Player::draw() const
         }
         else
         {
+            // 图片资源缺失时使用 EasyX 图元备用角色，程序仍可运行和展示玩法。
             drawChibiCharacter(style_, position_, 0.44f, walking_, animationTime_);
         }
     }
@@ -354,6 +365,7 @@ void Player::draw() const
 
 bool Player::loadSpriteSheet(const std::filesystem::path& imagePath)
 {
+    // 强制加载为约定的 3×4 单元尺寸，避免原图分辨率差异影响源矩形换算。
     const std::wstring path = imagePath.wstring();
     const int result = loadimage(&spriteSheet_, path.c_str(),
         SpriteColumns * SpriteCellSize, SpriteRows * SpriteCellSize, true);
@@ -379,6 +391,7 @@ void Player::drawSpriteFrame() const
     const int drawX = pixel(position_.x) - drawSize / 2 + recenter;
     // 可见矩形严格落在 44 像素通道内，人物不会再穿到上下左右墙块。
     const int drawY = pixel(position_.y) - drawSize / 2;
+    // 横向三列是左脚、站立、右脚，纵向四行对应四名可选角色。
     const int sourceX = frame * SpriteCellSize;
     const int sourceY = row * SpriteCellSize;
     drawAlphaSubImage(spriteSheet_, sourceX, sourceY, SpriteCellSize, SpriteCellSize,
@@ -394,6 +407,7 @@ void Player::handleMovement(const InputManager& input, float deltaTime,
         return input.down(key) || input.pressed(key);
     };
 
+    // 键盘只产生期望方向，真正位移仍交给 Character::move 检查地图和水泡碰撞。
     Vec2 requested{};
     if (movementKeyActive('A') || movementKeyActive(VK_LEFT))
     {
@@ -414,6 +428,7 @@ void Player::handleMovement(const InputManager& input, float deltaTime,
 
     if (lengthSquared(requested) < 0.001f)
     {
+        // 松开方向键时停在当前像素位置，不强制吸附到格中心，减少停止时的突跳。
         walking_ = false;
         walkAnimationTime_ = 0.0f;
         return;
@@ -421,6 +436,8 @@ void Player::handleMovement(const InputManager& input, float deltaTime,
 
     Vec2 primary = requested;
     Vec2 secondary{};
+    // 同时按下横纵方向时优先沿当前朝向移动，主方向受阻后再尝试另一个方向。
+    // 这使转弯保持四方向规则，也避免斜向切入墙角。
     if (requested.x != 0.0f && requested.y != 0.0f)
     {
         if (facing_.x != 0.0f)
@@ -487,6 +504,7 @@ void Player::handleMovement(const InputManager& input, float deltaTime,
     bool moved = moveWithCornerAssist(primary);
     if (!moved && lengthSquared(secondary) > 0.001f)
     {
+        // 主轴受阻时使用副轴作为容错，让快速转弯按键不会表现成一次“吞键”。
         moved = moveWithCornerAssist(secondary);
         if (moved)
         {
@@ -497,6 +515,7 @@ void Player::handleMovement(const InputManager& input, float deltaTime,
     walking_ = moved;
     if (moved)
     {
+        // 只有实际发生位移才推进步态，顶墙时不会原地高速踏步。
         walkAnimationTime_ += deltaTime;
         facing_ = normalized(primary);
     }
@@ -530,6 +549,7 @@ void Player::resetForNewGame(CharacterStyle style)
 
 void Player::prepareForLevel(const GridPos& spawnCell)
 {
+    // 换关保留角色成长数值，只重置位置、活动水泡计数和短暂无敌保护。
     position_ = cellCenter(spawnCell);
     activeBubbles_ = 0;
     invulnerableTimer_ = 1.2f;
@@ -541,6 +561,7 @@ void Player::prepareForLevel(const GridPos& spawnCell)
 
 bool Player::takeDamage()
 {
+    // 无敌期间返回 false，调用方据此避免重复播放受伤音效和粒子。
     if (invulnerableTimer_ > 0.0f || lives_ <= 0)
     {
         return false;
@@ -556,6 +577,7 @@ bool Player::takeDamage()
 
     --lives_;
     invulnerableTimer_ = 1.8f;
+    // active_ 表示对象是否仍参与更新和碰撞；生命归零后由主流程进入失败场景。
     if (lives_ <= 0)
     {
         active_ = false;
@@ -603,6 +625,7 @@ void Player::onBubbleExpired()
 
 bool EnemySpriteAtlas::load(const std::filesystem::path& imagePath)
 {
+    // 三个 256×256 单元依次保存巡逻怪、追击怪和 Boss，加载一次后共享 IMAGE。
     const std::wstring path = imagePath.wstring();
     loaded_ = loadimage(&atlas_, path.c_str(), CellSize * 3, CellSize, true) == 0;
     return loaded_;
@@ -614,6 +637,7 @@ void EnemySpriteAtlas::draw(int column, int centerX, int centerY, int size) cons
     {
         return;
     }
+    // 对列号限幅可防止错误索引读到图集外；目标尺寸由各派生敌人独立决定。
     column = std::clamp(column, 0, 2);
     drawAlphaSubImage(atlas_, column * CellSize, 0, CellSize, CellSize,
         centerX - size / 2, centerY - size / 2, size, size);
@@ -626,6 +650,7 @@ Enemy::Enemy(int id, Vec2 position, float speed, const EnemySpriteAtlas* sprites
 
 void Enemy::update(float deltaTime)
 {
+    // 基类只维护所有敌人共有的动画和决策倒计时，具体方向由虚函数选择。
     animationTime_ += deltaTime;
     decisionTimer_ -= deltaTime;
 }
@@ -652,6 +677,7 @@ void Enemy::updateAI(float deltaTime, const GameMap& map,
 
     if (!move(direction_, deltaTime, map, bubbles))
     {
+        // 前方临时被水泡或墙阻断时立即重新决策，不必等待原 0.30 秒周期结束。
         direction_ = chooseDirection(map, bubbles, dangerousCells, playerPosition, randomEngine);
         decisionTimer_ = 0.0f;
     }
@@ -659,6 +685,7 @@ void Enemy::updateAI(float deltaTime, const GameMap& map,
 
 EnemyHitResult Enemy::takeWaveHit()
 {
+    // 普通敌人没有分段生命，第一次有效水浪直接令其失效并返回淘汰结果。
     if (!active_)
     {
         return EnemyHitResult::Ignored;
@@ -689,6 +716,7 @@ std::vector<Vec2> Enemy::availableDirections(const GameMap& map,
         {
             return bubble.active() && bubble.cell() == next;
         });
+        // AI 把水泡所在格视为临时墙，避免进入后被自身路径选择困住。
         if (!occupiedByBubble)
         {
             result.push_back(direction);
@@ -761,11 +789,13 @@ Vec2 PatrolEnemy::chooseDirection(const GameMap& map,
 
     if (options.size() > 1)
     {
+        // 有其他选择时删除直接回头方向，减少巡逻怪在两个相邻格之间来回抖动。
         options.erase(std::remove_if(options.begin(), options.end(), [this](const Vec2& option)
         {
             return isOpposite(option, direction_);
         }), options.end());
     }
+    // 安全候选等概率抽取，固定随机种子使同一关的演示路径仍可复现。
     std::uniform_int_distribution<std::size_t> choose(0, options.size() - 1);
     return options[choose(randomEngine)];
 }
@@ -813,6 +843,7 @@ Vec2 HunterEnemy::chooseDirection(const GameMap& map,
         return { -direction_.x, -direction_.y };
     }
 
+    // 先打乱候选，距离评分相同时不会永远偏向数组中的第一个方向。
     std::shuffle(options.begin(), options.end(), randomEngine);
     const GridPos targetCell = worldToCell(playerPosition);
     const GridPos current = cell();
@@ -842,6 +873,7 @@ BossEnemy::BossEnemy(int id, Vec2 position, float speed, int maxHealth,
 void BossEnemy::update(float deltaTime)
 {
     Enemy::update(deltaTime);
+    // 冷却归零后才允许下一片水浪扣血，数值与绘制的受击圆环共用同一状态。
     hitCooldown_ = std::max(0.0f, hitCooldown_ - deltaTime);
 }
 
@@ -853,6 +885,7 @@ void BossEnemy::draw() const
 
     if (sprites_ != nullptr && sprites_->loaded())
     {
+        // 受击冷却期间显示外圈提示；它只提供反馈，不改变 Boss 的实际碰撞盒。
         if (hitCooldown_ > 0.0f)
         {
             setlinecolor(Palette::Coral);
@@ -865,6 +898,7 @@ void BossEnemy::draw() const
         const int barLeft = x - 24;
         const int barRight = x + 24;
         const int barTop = y - 38;
+        // 血条宽度按 health/maxHealth 的整数比例计算，三次有效爆炸正好减少三段。
         setfillcolor(Palette::Shadow);
         solidrectangle(barLeft, barTop, barRight, barTop + 5);
         setfillcolor(Palette::Danger);
@@ -940,6 +974,7 @@ Vec2 BossEnemy::chooseDirection(const GameMap& map,
         return { -direction_.x, -direction_.y };
     }
 
+    // Boss 也追踪玩家，但危险格罚分低于 Hunter，使它更有压迫感且不会完全无视水浪。
     std::shuffle(options.begin(), options.end(), randomEngine);
     const GridPos target = worldToCell(playerPosition);
     const GridPos current = cell();
@@ -966,6 +1001,7 @@ WaterBubble::WaterBubble(GridPos cell, int ownerId, int blastRange)
 
 void WaterBubble::update(float deltaTime)
 {
+    // 倒计时可被连锁 trigger 直接归零；动画时间只影响脉冲外观，不参与爆炸判定。
     timer_ -= deltaTime;
     animationTime_ += deltaTime;
 }
@@ -973,6 +1009,7 @@ void WaterBubble::update(float deltaTime)
 void WaterBubble::draw() const
 {
     const Vec2 center = cellCenter(cell_);
+    // 最后 0.8 秒逐渐提高呼吸速度和幅度，帮助玩家在没有数字计时器时判断危险。
     const float urgency = std::clamp((0.8f - timer_) / 0.8f, 0.0f, 1.0f);
     const float pulseSpeed = 4.0f + urgency * 12.0f;
     const int pulse = pixel(std::sin(animationTime_ * pulseSpeed) * (2.0f + urgency * 2.0f));
@@ -1006,6 +1043,7 @@ void WaterBubble::updateOwnerPassage(const RectF& ownerBounds)
 
 bool WaterBubble::blocksCharacter(int characterId, const RectF& candidate) const
 {
+    // 仅创建者在尚未离开水泡时享有穿行例外，敌人和其他状态始终按障碍处理。
     if (characterId == ownerId_ && ownerMayPass_)
     {
         return false;
@@ -1020,6 +1058,7 @@ WaterWave::WaterWave(GridPos cell)
 
 void WaterWave::update(float deltaTime)
 {
+    // 水浪保持短暂寿命，使玩家和 Boss 的逐帧碰撞有明确但有限的判定窗口。
     lifetime_ -= deltaTime;
     if (lifetime_ <= 0.0f)
     {
@@ -1075,6 +1114,7 @@ PowerUp::PowerUp(GridPos cell, PowerUpType type, const ItemIconAtlas* icons)
 
 void PowerUp::update(float deltaTime)
 {
+    // 未拾取道具在 14 秒后自动清理，避免长时间游玩造成容器持续增长。
     lifetime_ -= deltaTime;
     animationTime_ += deltaTime;
     if (lifetime_ <= 0.0f)
@@ -1097,6 +1137,7 @@ void PowerUp::draw() const
 
     COLORREF color = Palette::Aqua;
     wchar_t symbol[2] = L"+";
+    // 备用绘制沿用相同的类型到颜色/符号映射，图片缺失时仍能分辨道具作用。
     switch (type_)
     {
     case PowerUpType::BlastRange:
@@ -1147,11 +1188,13 @@ void StarParticle::update(float deltaTime)
         return;
     }
     position_ += velocity_ * deltaTime;
+    // 简单恒定重力让爆炸星星先向外飞散再下落，不需要额外物理对象。
     velocity_.y += 35.0f * deltaTime;
 }
 
 void StarParticle::draw() const
 {
+    // 剩余寿命比例同时控制星形半径，粒子结束前自然缩小而不是突然消失。
     const float ratio = std::clamp(lifetime_ / initialLifetime_, 0.0f, 1.0f);
     drawSimpleStar(pixel(position_.x), pixel(position_.y),
         std::max(2, pixel(radius_ * ratio)), color_);

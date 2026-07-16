@@ -229,6 +229,8 @@ namespace
 
 const IMAGE* PortraitAtlas::imageFor(PortraitSize size) const
 {
+    // 三种尺寸分别在加载阶段完成缩放；这里仅返回对应缓存，调用方无需
+    // 了解 IMAGE 的存储方式，也不会在绘制循环中临时创建图片。
     switch (size)
     {
     case PortraitSize::Large: return &largeAtlas_;
@@ -268,6 +270,7 @@ void PortraitAtlas::draw(CharacterStyle style, PortraitSize size, int x, int y) 
     const IMAGE* atlas = imageFor(size);
     const int portraitWidth = atlas->getwidth() / 4;
     const int portraitHeight = atlas->getheight();
+    // 四名角色在图集中横向等宽排列，枚举值可以直接换算为源矩形左边界。
     const int sourceX = static_cast<int>(style) * portraitWidth;
     putimage(x, y, portraitWidth, portraitHeight, atlas, sourceX, 0, SRCCOPY);
 }
@@ -282,6 +285,7 @@ AudioManager::AudioManager()
 
 AudioManager::~AudioManager()
 {
+    // 显式关闭 MCI 别名和异步音效，防止窗口退出后系统仍占用 wav 文件。
     stopMusic();
     PlaySoundW(nullptr, nullptr, 0);
 }
@@ -293,6 +297,8 @@ std::filesystem::path AudioManager::assetPath(const wchar_t* filename) const
 
 void AudioManager::playLoop(const wchar_t* filename, MusicTrack track)
 {
+    // 已在播放同一首音乐时不重复 open；MCI 重复打开同一别名会返回错误，
+    // 也会让菜单与暂停界面切换时出现短暂断音。
     if (currentTrack_ == track)
     {
         if (paused_)
@@ -304,6 +310,7 @@ void AudioManager::playLoop(const wchar_t* filename, MusicTrack track)
 
     stopMusic();
     const std::wstring path = assetPath(filename).wstring();
+    // 固定别名 moe_bgm 让暂停、恢复和关闭操作不必重复保存完整文件路径。
     const std::wstring openCommand = L"open \"" + path + L"\" type waveaudio alias moe_bgm";
     if (mciSendStringW(openCommand.c_str(), nullptr, 0, nullptr) == 0)
     {
@@ -356,6 +363,7 @@ void AudioManager::stopMusic()
 void AudioManager::playEffect(const wchar_t* filename) const
 {
     const std::filesystem::path path = assetPath(filename);
+    // 短音效异步播放，不阻塞约 60 FPS 的游戏主循环；资源缺失时静默跳过。
     PlaySoundW(path.c_str(), nullptr, SND_FILENAME | SND_ASYNC | SND_NODEFAULT);
 }
 
@@ -377,6 +385,8 @@ int MoeBubbleGame::run()
     input_.poll();
     auto previousFrame = std::chrono::steady_clock::now();
 
+    // 游戏只保留一个主循环。场景之间通过 scene_ 切换，不递归进入新的循环，
+    // 因此暂停、重开和返回菜单都不会积累额外调用栈。
     while (running_)
     {
         const auto frameStart = std::chrono::steady_clock::now();
@@ -395,6 +405,7 @@ int MoeBubbleGame::run()
 
         const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - frameStart).count();
+        // 计算本帧实际耗时后补足 16 ms，降低空闲 CPU 占用并稳定动画速度。
         if (elapsed < 16)
         {
             Sleep(static_cast<DWORD>(16 - elapsed));
@@ -411,6 +422,7 @@ int MoeBubbleGame::captureReportScreenshots(const std::filesystem::path& outputD
 
     auto capture = [&](const wchar_t* filename)
     {
+        // 截图前强制刷新双缓冲，确保 saveimage 取得的是完整的一帧而非上帧残留。
         render();
         FlushBatchDraw();
         const std::filesystem::path path = outputDirectory / filename;
@@ -452,6 +464,7 @@ int MoeBubbleGame::captureReportScreenshots(const std::filesystem::path& outputD
 
 void MoeBubbleGame::openWindow()
 {
+    // EW_NOCLOSE 让关闭请求也进入统一消息处理，避免系统直接销毁窗口导致资源未释放。
     initgraph(GameConfig::WindowWidth, GameConfig::WindowHeight, EW_NOCLOSE);
     windowOpened_ = true;
     SetWindowTextW(GetHWnd(), L"萌泡大作战 - 单人闯关");
@@ -474,6 +487,7 @@ void MoeBubbleGame::openWindow()
     const std::filesystem::path enemySpritePath = std::filesystem::path(executablePath).parent_path()
         / L"assets" / L"sprites" / L"enemy_sprites_v1.png";
     enemySprites_.load(enemySpritePath);
+    // 后续所有场景先画到后台缓冲，再由主循环一次性提交，减少 EasyX 闪烁。
     BeginBatchDraw();
 }
 
@@ -482,6 +496,7 @@ void MoeBubbleGame::processWindowMessages()
     // 鼠标点击是本帧边沿信号，每帧先清零；悬停坐标则保留最近位置。
     mouseLeftPressed_ = false;
     ExMessage message{};
+    // 一次取空本帧积压的鼠标和窗口消息，避免快速移动鼠标时坐标明显滞后。
     while (peekmessage(&message, EX_MOUSE | EX_WINDOW))
     {
         if (message.message >= WM_MOUSEFIRST && message.message <= WM_MOUSELAST)
@@ -519,6 +534,8 @@ void MoeBubbleGame::processInput()
 
 void MoeBubbleGame::update(float deltaTime)
 {
+    // sceneTime_ 为界面入场动画和提示闪烁提供统一时间基准；爆炸音效冷却
+    // 则限制连锁水泡在同一瞬间反复启动同一个异步声音。
     sceneTime_ += deltaTime;
     effectCooldown_ = std::max(0.0f, effectCooldown_ - deltaTime);
 
@@ -545,6 +562,8 @@ void MoeBubbleGame::transitionTo(SceneState state)
     scene_ = state;
     sceneTime_ = 0.0f;
 
+    // 菜单类场景共用轻音乐，战斗场景使用关卡音乐，覆盖层只暂停当前曲目。
+    // 统一在此处处理可保证鼠标、键盘和自动过关触发的切换行为一致。
     if (state == SceneState::MainMenu || state == SceneState::CharacterSelect
         || (state == SceneState::Instructions && instructionReturnScene_ == SceneState::MainMenu))
     {
@@ -575,6 +594,7 @@ void MoeBubbleGame::transitionTo(SceneState state)
 
 void MoeBubbleGame::moveMenuSelection(int& index, int itemCount, int direction)
 {
+    // 加上 itemCount 后再取模，使向上越过第 0 项时可以安全循环到最后一项。
     index = (index + direction + itemCount) % itemCount;
     audio_.playEffect(L"sfx_menu_move.wav");
 }
@@ -593,6 +613,7 @@ bool MoeBubbleGame::mouseSelects(int& index, int candidate,
     }
     if (index != candidate)
     {
+        // 悬停只改变当前高亮并播放移动音，真正执行按钮仍要求本帧左键按下。
         index = candidate;
         audio_.playEffect(L"sfx_menu_move.wav");
     }
@@ -601,6 +622,7 @@ bool MoeBubbleGame::mouseSelects(int& index, int candidate,
 
 void MoeBubbleGame::handleMainMenuInput()
 {
+    // 鼠标热区与绘制按钮使用同一组纵向间距，clicked 只记录是否点击了任意一项。
     bool clicked = false;
     for (int index = 0; index < 4; ++index)
     {
@@ -651,6 +673,7 @@ void MoeBubbleGame::handleMainMenuInput()
 
 void MoeBubbleGame::handleCharacterSelectInput()
 {
+    // 移入角色卡即可预览属性；确认后才写入 selectedStyle_，取消不会改变原选择。
     for (int index = 0; index < 4; ++index)
     {
         const int left = 30 + index * 232;
@@ -679,6 +702,7 @@ void MoeBubbleGame::handleCharacterSelectInput()
 
 void MoeBubbleGame::handleInstructionsInput()
 {
+    // 说明页既可从主菜单进入，也可从暂停菜单进入，返回目标由进入前保存的状态决定。
     if (input_.pressed(VK_RETURN) || input_.pressed(VK_SPACE) || input_.pressed(VK_ESCAPE)
         || (mouseLeftPressed_ && mouseInside(330, 612, 630, 666)))
     {
@@ -688,6 +712,7 @@ void MoeBubbleGame::handleInstructionsInput()
 
 void MoeBubbleGame::handlePlayingInput()
 {
+    // 连续方向键由 Player 每帧查询；放泡和暂停属于一次性动作，只读取 pressed 边沿。
     if (input_.pressed(VK_SPACE))
     {
         tryPlaceBubble();
@@ -701,6 +726,7 @@ void MoeBubbleGame::handlePlayingInput()
 
 void MoeBubbleGame::handlePausedInput()
 {
+    // P/Esc 是快速恢复通道；下方菜单同时支持键盘循环选择和鼠标悬停点击。
     if (input_.pressed('P') || input_.pressed(VK_ESCAPE))
     {
         transitionTo(SceneState::Playing);
@@ -747,6 +773,7 @@ void MoeBubbleGame::handlePausedInput()
 
 void MoeBubbleGame::handleResultInput()
 {
+    // 胜利页采用横排按钮，过关/失败页采用竖排按钮，因此鼠标热区分别计算。
     bool clicked = false;
     if (scene_ == SceneState::Victory)
     {
@@ -799,6 +826,7 @@ void MoeBubbleGame::handleResultInput()
 
 void MoeBubbleGame::handleExitConfirmInput()
 {
+    // exitReturnScene_ 记录弹窗下方的原场景，选择“取消”时可原路返回。
     bool clicked = mouseSelects(exitChoice_, 0, 300, 364, 474, 424);
     if (mouseSelects(exitChoice_, 1, 492, 364, 666, 424)) clicked = true;
     if (input_.pressed(VK_LEFT) || input_.pressed(VK_RIGHT)
@@ -826,6 +854,7 @@ void MoeBubbleGame::handleExitConfirmInput()
 
 void MoeBubbleGame::startNewGame()
 {
+    // 新游戏清空跨关累计值；角色配置只在这里装载，进入下一关不会重置强化与生命。
     score_ = 0;
     level_ = 1;
     statistics_.reset();
@@ -854,6 +883,7 @@ void MoeBubbleGame::setupLevel(int level, bool restoreLevelScore)
     enemies_.clear();
     player_.prepareForLevel({ 1, 1 });
 
+    // 敌人编号从 100 开始，与玩家编号 1 分离；水泡据此判断其所有者能否离开出生格。
     int enemyId = 100;
     const float patrolSpeed = 66.0f + level_ * 8.0f;
     const float hunterSpeed = 72.0f + level_ * 9.0f;
@@ -875,6 +905,7 @@ void MoeBubbleGame::setupLevel(int level, bool restoreLevelScore)
 
     if (!restoreLevelScore)
     {
+        // 记录关卡入口快照。暂停菜单选择重开时恢复这些累计值，避免重复刷分。
         levelStartScore_ = score_;
         levelStartCrates_ = statistics_.cratesDestroyed;
         levelStartPowerUps_ = statistics_.powerUpsCollected;
@@ -896,6 +927,7 @@ void MoeBubbleGame::tryPlaceBubble()
         return;
     }
     const GridPos cell = player_.cell();
+    // 同一网格只能存在一个有效水泡；检查使用 STL 算法，不暴露容器内部索引。
     const bool occupied = std::any_of(bubbles_.begin(), bubbles_.end(), [&cell](const WaterBubble& bubble)
     {
         return bubble.active() && bubble.cell() == cell;
@@ -911,12 +943,15 @@ void MoeBubbleGame::tryPlaceBubble()
 
 void MoeBubbleGame::updatePlaying(float deltaTime)
 {
+    // 更新顺序刻意固定：先移动玩家，再推进定时对象和 AI，最后统一碰撞与清理。
+    // 这样本帧新产生的水浪可以立即命中，而失效对象不会在遍历中被删除。
     statistics_.elapsedTime += deltaTime;
     player_.update(deltaTime);
     player_.handleMovement(input_, deltaTime, map_, bubbles_);
 
     for (WaterBubble& bubble : bubbles_)
     {
+        // 只有所有者需要更新“离开后不可穿回”的一次性通行状态。
         if (bubble.active() && bubble.ownerId() == player_.id())
         {
             bubble.updateOwnerPassage(player_.bounds());
@@ -948,6 +983,7 @@ void MoeBubbleGame::updatePlaying(float deltaTime)
 
 void MoeBubbleGame::updateBubbles(float deltaTime)
 {
+    // 第一遍只推进倒计时，不直接擦除对象，后面的连锁检测仍能访问完整容器。
     for (WaterBubble& bubble : bubbles_)
     {
         if (bubble.active())
@@ -984,6 +1020,7 @@ void MoeBubbleGame::explodeBubble(std::size_t bubbleIndex)
     const int range = bubble.blastRange();
     const int ownerId = bubble.ownerId();
     bubble.deactivate();
+    // 水泡失效时归还玩家容量；连锁引爆和自然到时共用同一条回收路径。
     if (ownerId == player_.id())
     {
         player_.onBubbleExpired();
@@ -1009,6 +1046,7 @@ void MoeBubbleGame::explodeBubble(std::size_t bubbleIndex)
             }
 
             waves_.emplace_back(cell);
+            // 命中另一个水泡只把其计时器归零，外层 while 会在本帧继续处理它。
             for (WaterBubble& other : bubbles_)
             {
                 if (other.active() && other.cell() == cell)
@@ -1033,6 +1071,7 @@ void MoeBubbleGame::explodeBubble(std::size_t bubbleIndex)
 
     if (effectCooldown_ <= 0.0f)
     {
+        // 多个水泡同时爆炸时只播放一次声音，粒子和伤害仍按各自格子完整结算。
         audio_.playEffect(L"sfx_bubble_explode.wav");
         effectCooldown_ = 0.08f;
     }
@@ -1055,6 +1094,7 @@ std::vector<GridPos> MoeBubbleGame::collectDangerousCells() const
     };
     for (const WaterBubble& bubble : bubbles_)
     {
+        // 只预测 0.85 秒内即将引爆的水泡，避免 AI 长时间绕开暂时安全的通道。
         if (!bubble.active() || bubble.remainingTime() > 0.85f)
         {
             continue;
@@ -1117,6 +1157,7 @@ void MoeBubbleGame::updateCollisions()
 
         for (const std::unique_ptr<Enemy>& enemy : enemies_)
         {
+            // 普通敌人一次淘汰；Boss 通过重写 takeWaveHit 返回 Damaged 或 Defeated。
             if (enemy->active() && intersects(wave.bounds(), enemy->bounds()))
             {
                 const EnemyHitResult result = enemy->takeWaveHit();
@@ -1137,6 +1178,7 @@ void MoeBubbleGame::updateCollisions()
 
     for (const std::unique_ptr<Enemy>& enemy : enemies_)
     {
+        // 敌人与玩家接触和水浪伤害共用 Player 的无敌计时，不会每帧连续扣血。
         if (enemy->active() && player_.active()
             && intersects(enemy->bounds(), player_.bounds()) && player_.takeDamage())
         {
@@ -1152,6 +1194,7 @@ void MoeBubbleGame::updateCollisions()
 
     for (PowerUp& powerUp : powerUps_)
     {
+        // 拾取后只标记失效，稍后的 cleanupInactiveObjects 负责安全移出 vector。
         if (powerUp.active() && intersects(powerUp.bounds(), player_.bounds()))
         {
             player_.applyPowerUp(powerUp.type());
@@ -1178,6 +1221,7 @@ void MoeBubbleGame::createPowerUp(const GridPos& cell)
 
 void MoeBubbleGame::createParticles(const Vec2& position, COLORREF color, int count)
 {
+    // 极坐标随机生成全方向速度，随后由 StarParticle 的重力形成自然下落轨迹。
     std::uniform_real_distribution<float> angle(0.0f, GameConfig::Pi * 2.0f);
     std::uniform_real_distribution<float> speed(45.0f, 125.0f);
     std::uniform_real_distribution<float> life(0.35f, 0.75f);
@@ -1193,6 +1237,7 @@ void MoeBubbleGame::createParticles(const Vec2& position, COLORREF color, int co
 
 void MoeBubbleGame::completeLevel()
 {
+    // 过关奖励同时考虑关卡序号和剩余生命，随后再决定进入下一关或总胜利页。
     score_ += 500 * level_ + player_.lives() * 100;
     highScore_ = std::max(highScore_, score_);
     resultIndex_ = 0;
@@ -1209,6 +1254,7 @@ void MoeBubbleGame::completeLevel()
 
 void MoeBubbleGame::finishGame(bool victory)
 {
+    // 所有结束路径在这里同步最高分和默认按钮，保证结算界面初始状态一致。
     highScore_ = std::max(highScore_, score_);
     resultIndex_ = 0;
     transitionTo(victory ? SceneState::Victory : SceneState::GameOver);
