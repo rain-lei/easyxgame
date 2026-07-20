@@ -11,6 +11,16 @@
 
 namespace
 {
+    constexpr PlayerControls SinglePlayerControls{
+        'W', 'S', 'A', 'D', VK_UP, VK_DOWN, VK_LEFT, VK_RIGHT
+    };
+    constexpr PlayerControls PlayerOneControls{ 'W', 'S', 'A', 'D' };
+    constexpr PlayerControls PlayerTwoControls{ VK_UP, VK_DOWN, VK_LEFT, VK_RIGHT };
+    constexpr int MainMenuItemCount = 5;
+    constexpr int MainMenuButtonTop = 214;
+    constexpr int MainMenuButtonStep = 68;
+    constexpr int MainMenuButtonHeight = 54;
+
     int pixel(float value)
     {
         return static_cast<int>(std::lround(value));
@@ -447,6 +457,16 @@ int MoeBubbleGame::captureReportScreenshots(const std::filesystem::path& outputD
     powerUps_.emplace_back(GridPos{ 1, 9 }, PowerUpType::Shield, &itemIcons_);
     capture(L"game_level1_items.png");
 
+    gameMode_ = GameMode::TwoPlayer;
+    selectedStyle_ = CharacterStyle::Bear;
+    selectedStyle2_ = CharacterStyle::Rabbit;
+    startNewGame();
+    player_.update(1.3f);
+    player2_.update(1.3f);
+    capture(L"game_coop_mode.png");
+
+    gameMode_ = GameMode::SinglePlayer;
+    player2_.deactivate();
     setupLevel(3);
     player_.update(1.3f);
     scene_ = SceneState::Playing;
@@ -467,7 +487,7 @@ void MoeBubbleGame::openWindow()
     // EW_NOCLOSE 让关闭请求也进入统一消息处理，避免系统直接销毁窗口导致资源未释放。
     initgraph(GameConfig::WindowWidth, GameConfig::WindowHeight, EW_NOCLOSE);
     windowOpened_ = true;
-    SetWindowTextW(GetHWnd(), L"萌泡大作战 - 单人闯关");
+    SetWindowTextW(GetHWnd(), L"萌泡大作战 - 单人 / 本地双人合作");
     ImmAssociateContext(GetHWnd(), HIMC{});
     setbkcolor(Palette::Paper);
     setbkmode(TRANSPARENT);
@@ -481,6 +501,7 @@ void MoeBubbleGame::openWindow()
     const std::filesystem::path spritePath = std::filesystem::path(executablePath).parent_path()
         / L"assets" / L"sprites" / L"player_walk_sheet.png";
     player_.loadSpriteSheet(spritePath);
+    player2_.loadSpriteSheet(spritePath);
     const std::filesystem::path itemIconPath = std::filesystem::path(executablePath).parent_path()
         / L"assets" / L"ui" / L"item_icons_v1.png";
     itemIcons_.load(itemIconPath);
@@ -624,34 +645,47 @@ void MoeBubbleGame::handleMainMenuInput()
 {
     // 鼠标热区与绘制按钮使用同一组纵向间距，clicked 只记录是否点击了任意一项。
     bool clicked = false;
-    for (int index = 0; index < 4; ++index)
+    for (int index = 0; index < MainMenuItemCount; ++index)
     {
-        if (mouseSelects(menuIndex_, index, 558, 236 + index * 78, 868, 294 + index * 78))
+        const int top = MainMenuButtonTop + index * MainMenuButtonStep;
+        if (mouseSelects(menuIndex_, index, 558, top, 868, top + MainMenuButtonHeight))
         {
             clicked = true;
         }
     }
     if (input_.pressed(VK_UP) || input_.pressed('W'))
     {
-        moveMenuSelection(menuIndex_, 4, -1);
+        moveMenuSelection(menuIndex_, MainMenuItemCount, -1);
     }
     if (input_.pressed(VK_DOWN) || input_.pressed('S'))
     {
-        moveMenuSelection(menuIndex_, 4, 1);
+        moveMenuSelection(menuIndex_, MainMenuItemCount, 1);
     }
     if (input_.pressed(VK_RETURN) || input_.pressed(VK_SPACE) || clicked)
     {
         audio_.playEffect(L"sfx_menu_confirm.wav");
         if (menuIndex_ == 0)
         {
+            gameMode_ = GameMode::SinglePlayer;
             startNewGame();
         }
         else if (menuIndex_ == 1)
         {
+            // 双人模式依次选择两名角色，第二名确认后直接进入合作关卡。
+            gameMode_ = GameMode::TwoPlayer;
+            coopCharacterSelection_ = true;
+            selectingPlayer_ = 1;
             characterIndex_ = static_cast<int>(selectedStyle_);
             transitionTo(SceneState::CharacterSelect);
         }
         else if (menuIndex_ == 2)
+        {
+            coopCharacterSelection_ = false;
+            selectingPlayer_ = 1;
+            characterIndex_ = static_cast<int>(selectedStyle_);
+            transitionTo(SceneState::CharacterSelect);
+        }
+        else if (menuIndex_ == 3)
         {
             instructionReturnScene_ = SceneState::MainMenu;
             transitionTo(SceneState::Instructions);
@@ -690,9 +724,24 @@ void MoeBubbleGame::handleCharacterSelectInput()
     const bool confirmClicked = mouseLeftPressed_ && mouseInside(282, 618, 678, 674);
     if (input_.pressed(VK_RETURN) || input_.pressed(VK_SPACE) || confirmClicked)
     {
-        selectedStyle_ = styleFromIndex(characterIndex_);
         audio_.playEffect(L"sfx_menu_confirm.wav");
-        transitionTo(SceneState::MainMenu);
+        if (!coopCharacterSelection_)
+        {
+            selectedStyle_ = styleFromIndex(characterIndex_);
+            transitionTo(SceneState::MainMenu);
+        }
+        else if (selectingPlayer_ == 1)
+        {
+            selectedStyle_ = styleFromIndex(characterIndex_);
+            selectingPlayer_ = 2;
+            characterIndex_ = static_cast<int>(selectedStyle2_);
+        }
+        else
+        {
+            selectedStyle2_ = styleFromIndex(characterIndex_);
+            coopCharacterSelection_ = false;
+            startNewGame();
+        }
     }
     if (input_.pressed(VK_ESCAPE))
     {
@@ -712,10 +761,14 @@ void MoeBubbleGame::handleInstructionsInput()
 
 void MoeBubbleGame::handlePlayingInput()
 {
-    // 连续方向键由 Player 每帧查询；放泡和暂停属于一次性动作，只读取 pressed 边沿。
+    // P1 使用 WASD + Space，P2 使用方向键 + Enter；放泡按键只读取一次性边沿。
     if (input_.pressed(VK_SPACE))
     {
-        tryPlaceBubble();
+        tryPlaceBubble(player_);
+    }
+    if (twoPlayerMode() && input_.pressed(VK_RETURN))
+    {
+        tryPlaceBubble(player2_);
     }
     if (input_.pressed('P') || input_.pressed(VK_ESCAPE))
     {
@@ -859,6 +912,14 @@ void MoeBubbleGame::startNewGame()
     level_ = 1;
     statistics_.reset();
     player_.resetForNewGame(selectedStyle_);
+    if (twoPlayerMode())
+    {
+        player2_.resetForNewGame(selectedStyle2_);
+    }
+    else
+    {
+        player2_.deactivate();
+    }
     setupLevel(level_);
     transitionTo(SceneState::Playing);
 }
@@ -882,6 +943,10 @@ void MoeBubbleGame::setupLevel(int level, bool restoreLevelScore)
     particles_.clear();
     enemies_.clear();
     player_.prepareForLevel({ 1, 1 });
+    if (twoPlayerMode())
+    {
+        player2_.prepareForLevel({ 1, 2 });
+    }
 
     // 敌人编号从 100 开始，与玩家编号 1 分离；水泡据此判断其所有者能否离开出生格。
     int enemyId = 100;
@@ -920,13 +985,22 @@ void MoeBubbleGame::restartCurrentLevel()
     transitionTo(SceneState::Playing);
 }
 
-void MoeBubbleGame::tryPlaceBubble()
+void MoeBubbleGame::tryPlaceBubble(Player& player)
 {
-    if (!player_.canPlaceBubble())
+    if (!player.active() || !player.canPlaceBubble())
     {
         return;
     }
-    const GridPos cell = player_.cell();
+    const GridPos cell = player.cell();
+    if (twoPlayerMode())
+    {
+        const Player& teammate = player.id() == player_.id() ? player2_ : player_;
+        // 两人站在同一格时禁止放泡，避免非所有者被新水泡立即困在格子内部。
+        if (teammate.active() && teammate.cell() == cell)
+        {
+            return;
+        }
+    }
     // 同一网格只能存在一个有效水泡；检查使用 STL 算法，不暴露容器内部索引。
     const bool occupied = std::any_of(bubbles_.begin(), bubbles_.end(), [&cell](const WaterBubble& bubble)
     {
@@ -936,8 +1010,8 @@ void MoeBubbleGame::tryPlaceBubble()
     {
         return;
     }
-    bubbles_.emplace_back(cell, player_.id(), player_.blastRange());
-    player_.onBubblePlaced();
+    bubbles_.emplace_back(cell, player.id(), player.blastRange());
+    player.onBubblePlaced();
     audio_.playEffect(L"sfx_bubble_place.wav");
 }
 
@@ -946,8 +1020,17 @@ void MoeBubbleGame::updatePlaying(float deltaTime)
     // 更新顺序刻意固定：先移动玩家，再推进定时对象和 AI，最后统一碰撞与清理。
     // 这样本帧新产生的水浪可以立即命中，而失效对象不会在遍历中被删除。
     statistics_.elapsedTime += deltaTime;
-    player_.update(deltaTime);
-    player_.handleMovement(input_, deltaTime, map_, bubbles_);
+    if (player_.active())
+    {
+        player_.update(deltaTime);
+        player_.handleMovement(input_, deltaTime, map_, bubbles_,
+            twoPlayerMode() ? PlayerOneControls : SinglePlayerControls);
+    }
+    if (twoPlayerMode() && player2_.active())
+    {
+        player2_.update(deltaTime);
+        player2_.handleMovement(input_, deltaTime, map_, bubbles_, PlayerTwoControls);
+    }
 
     for (WaterBubble& bubble : bubbles_)
     {
@@ -955,6 +1038,10 @@ void MoeBubbleGame::updatePlaying(float deltaTime)
         if (bubble.active() && bubble.ownerId() == player_.id())
         {
             bubble.updateOwnerPassage(player_.bounds());
+        }
+        else if (twoPlayerMode() && bubble.active() && bubble.ownerId() == player2_.id())
+        {
+            bubble.updateOwnerPassage(player2_.bounds());
         }
     }
 
@@ -1024,6 +1111,10 @@ void MoeBubbleGame::explodeBubble(std::size_t bubbleIndex)
     if (ownerId == player_.id())
     {
         player_.onBubbleExpired();
+    }
+    else if (twoPlayerMode() && ownerId == player2_.id())
+    {
+        player2_.onBubbleExpired();
     }
 
     waves_.emplace_back(origin);
@@ -1130,29 +1221,56 @@ void MoeBubbleGame::updateEnemies(float deltaTime)
     {
         if (enemy->active())
         {
-            enemy->updateAI(deltaTime, map_, bubbles_, danger, player_.position(), randomEngine_);
+            // 合作模式下每个敌人分别选择距离自己更近的存活玩家，避免始终只追 P1。
+            Vec2 target = player_.position();
+            if (!player_.active() && twoPlayerMode())
+            {
+                target = player2_.position();
+            }
+            else if (twoPlayerMode() && player2_.active()
+                && lengthSquared(player2_.position() - enemy->position())
+                    < lengthSquared(player_.position() - enemy->position()))
+            {
+                target = player2_.position();
+            }
+            enemy->updateAI(deltaTime, map_, bubbles_, danger, target, randomEngine_);
         }
     }
 }
 
 void MoeBubbleGame::updateCollisions()
 {
-    // 先处理水浪，再处理敌人接触和道具拾取；玩家死亡后立即结束本帧。
+    // 两名玩家共用伤害流程，但分别维护生命、护盾和无敌时间；只有全部阵亡才失败。
+    auto damagePlayer = [&](Player& player, const RectF& damageBounds, int particleCount)
+    {
+        if (!player.active() || !intersects(damageBounds, player.bounds()) || !player.takeDamage())
+        {
+            return false;
+        }
+        audio_.playEffect(L"sfx_hit.wav");
+        createParticles(player.position(), Palette::Danger, particleCount);
+        if (allPlayersDefeated())
+        {
+            finishGame(false);
+            return true;
+        }
+        return false;
+    };
+
+    // 先处理水浪，再处理敌人接触和道具拾取；全部玩家死亡后立即结束本帧。
     for (const WaterWave& wave : waves_)
     {
         if (!wave.active())
         {
             continue;
         }
-        if (player_.active() && intersects(wave.bounds(), player_.bounds()) && player_.takeDamage())
+        if (damagePlayer(player_, wave.bounds(), 10))
         {
-            audio_.playEffect(L"sfx_hit.wav");
-            createParticles(player_.position(), Palette::Danger, 10);
-            if (!player_.active())
-            {
-                finishGame(false);
-                return;
-            }
+            return;
+        }
+        if (twoPlayerMode() && damagePlayer(player2_, wave.bounds(), 10))
+        {
+            return;
         }
 
         for (const std::unique_ptr<Enemy>& enemy : enemies_)
@@ -1179,30 +1297,49 @@ void MoeBubbleGame::updateCollisions()
     for (const std::unique_ptr<Enemy>& enemy : enemies_)
     {
         // 敌人与玩家接触和水浪伤害共用 Player 的无敌计时，不会每帧连续扣血。
-        if (enemy->active() && player_.active()
-            && intersects(enemy->bounds(), player_.bounds()) && player_.takeDamage())
+        if (!enemy->active())
         {
-            audio_.playEffect(L"sfx_hit.wav");
-            createParticles(player_.position(), Palette::Danger, 8);
-            if (!player_.active())
-            {
-                finishGame(false);
-                return;
-            }
+            continue;
+        }
+        if (damagePlayer(player_, enemy->bounds(), 8))
+        {
+            return;
+        }
+        if (twoPlayerMode() && damagePlayer(player2_, enemy->bounds(), 8))
+        {
+            return;
         }
     }
+
+    auto collectPowerUp = [&](PowerUp& powerUp, Player& player)
+    {
+        if (!player.active() || !intersects(powerUp.bounds(), player.bounds()))
+        {
+            return false;
+        }
+        player.applyPowerUp(powerUp.type());
+        powerUp.deactivate();
+        score_ += 50;
+        ++statistics_.powerUpsCollected;
+        audio_.playEffect(L"sfx_power_up.wav");
+        createParticles(player.position(), Palette::Mint, 10);
+        return true;
+    };
 
     for (PowerUp& powerUp : powerUps_)
     {
         // 拾取后只标记失效，稍后的 cleanupInactiveObjects 负责安全移出 vector。
-        if (powerUp.active() && intersects(powerUp.bounds(), player_.bounds()))
+        if (!powerUp.active())
         {
-            player_.applyPowerUp(powerUp.type());
-            powerUp.deactivate();
-            score_ += 50;
-            ++statistics_.powerUpsCollected;
-            audio_.playEffect(L"sfx_power_up.wav");
-            createParticles(player_.position(), Palette::Mint, 10);
+            continue;
+        }
+        if (collectPowerUp(powerUp, player_))
+        {
+            continue;
+        }
+        if (twoPlayerMode())
+        {
+            collectPowerUp(powerUp, player2_);
         }
     }
 }
@@ -1238,7 +1375,7 @@ void MoeBubbleGame::createParticles(const Vec2& position, COLORREF color, int co
 void MoeBubbleGame::completeLevel()
 {
     // 过关奖励同时考虑关卡序号和剩余生命，随后再决定进入下一关或总胜利页。
-    score_ += 500 * level_ + player_.lives() * 100;
+    score_ += 500 * level_ + totalRemainingLives() * 100;
     highScore_ = std::max(highScore_, score_);
     resultIndex_ = 0;
     createParticles({ GameConfig::WindowWidth / 2.0f, 210.0f }, Palette::Honey, 28);
@@ -1258,6 +1395,20 @@ void MoeBubbleGame::finishGame(bool victory)
     highScore_ = std::max(highScore_, score_);
     resultIndex_ = 0;
     transitionTo(victory ? SceneState::Victory : SceneState::GameOver);
+}
+
+bool MoeBubbleGame::allPlayersDefeated() const
+{
+    if (!twoPlayerMode())
+    {
+        return !player_.active();
+    }
+    return !player_.active() && !player2_.active();
+}
+
+int MoeBubbleGame::totalRemainingLives() const
+{
+    return player_.lives() + (twoPlayerMode() ? player2_.lives() : 0);
 }
 
 void MoeBubbleGame::cleanupInactiveObjects()
@@ -1345,8 +1496,8 @@ void MoeBubbleGame::drawBackground() const
 void MoeBubbleGame::drawMainMenu() const
 {
     drawBackground();
-    drawPanel(24, 20, 166, 58, Palette::White, 16, false);
-    drawCenteredText(L"单人闯关", 95, 28, 18, Palette::Ink, true);
+    drawPanel(24, 20, 214, 58, Palette::White, 16, false);
+    drawCenteredText(L"单人 / 本地双人", 119, 28, 18, Palette::Ink, true);
 
     drawCenteredText(L"萌泡大作战", 480, 72, 60, Palette::AquaDark, true);
     drawCenteredText(L"放置水泡 · 打通三关 · 成为泡泡达人", 480, 142, 20, Palette::Ink);
@@ -1366,24 +1517,30 @@ void MoeBubbleGame::drawMainMenu() const
             true, sceneTime_);
     }
     drawCenteredText(styleName(selectedStyle_), 276, 568, 24, styleColor(selectedStyle_), true);
-    drawCenteredText(L"当前泡泡搭档", 276, 598, 17, Palette::Ink);
+    drawCenteredText(L"玩家 1 当前搭档", 276, 598, 17, Palette::Ink);
 
-    constexpr std::array<const wchar_t*, 4> labels = {
-        L"开始游戏", L"角色选择", L"操作说明", L"退出游戏"
+    constexpr std::array<const wchar_t*, MainMenuItemCount> labels = {
+        L"单人闯关", L"双人合作", L"角色选择", L"操作说明", L"退出游戏"
     };
     for (int index = 0; index < static_cast<int>(labels.size()); ++index)
     {
-        drawButton(558, 236 + index * 78, 868, 294 + index * 78,
-            labels[index], index == menuIndex_, index == 3 ? Palette::Coral : Palette::Aqua);
+        const int top = MainMenuButtonTop + index * MainMenuButtonStep;
+        const COLORREF accent = index == 4 ? Palette::Coral
+            : (index == 1 ? Palette::Mint : Palette::Aqua);
+        drawButton(558, top, 868, top + MainMenuButtonHeight,
+            labels[index], index == menuIndex_, accent);
     }
-    drawCenteredText(L"鼠标点击 / ↑ ↓ 选择    Enter 确认", 713, 588, 18, Palette::Ink);
+    drawCenteredText(L"鼠标点击 / ↑ ↓ 选择 / Enter 确认", 713, 576, 17, Palette::Ink);
     drawCenteredText(L"C++ · Visual Studio · EasyX", 480, 680, 16, RGB(108, 127, 137));
 }
 
 void MoeBubbleGame::drawCharacterSelect() const
 {
     drawBackground();
-    drawCenteredText(L"选择你的泡泡搭档", 480, 46, 42, Palette::Ink, true);
+    const std::wstring title = coopCharacterSelection_
+        ? L"玩家 " + std::to_wstring(selectingPlayer_) + L" 选择泡泡搭档"
+        : L"选择你的泡泡搭档";
+    drawCenteredText(title, 480, 46, 42, Palette::Ink, true);
     drawCenteredText(L"四位搭档拥有不同生命、移速、水泡数量和爆破范围", 480, 100, 18, RGB(92, 113, 124));
 
     for (int index = 0; index < 4; ++index)
@@ -1421,7 +1578,10 @@ void MoeBubbleGame::drawCharacterSelect() const
         drawSmallIcon(itemIcons_, left + 134, 538, PowerUpType::Shield, profile.shieldCharges);
     }
 
-    drawButton(282, 618, 678, 674, L"确认选择", true, styleColor(styleFromIndex(characterIndex_)));
+    const wchar_t* confirmLabel = !coopCharacterSelection_ ? L"确认选择"
+        : (selectingPlayer_ == 1 ? L"玩家 1 确认，选择玩家 2" : L"玩家 2 确认并开始");
+    drawButton(282, 618, 678, 674, confirmLabel, true,
+        styleColor(styleFromIndex(characterIndex_)));
     drawCenteredText(L"鼠标选择并确认 / ← → 切换 / Esc 返回", 480, 687, 17, Palette::Ink);
 }
 
@@ -1430,18 +1590,15 @@ void MoeBubbleGame::drawInstructions() const
     drawBackground();
     drawPanel(54, 38, 906, 682, Palette::White, 28, true);
     drawCenteredText(L"操作说明", 480, 68, 42, Palette::AquaDark, true);
-    drawCenteredText(L"单人闯关：淘汰本关所有AI敌人即可前进", 480, 122, 19, Palette::Ink);
+    drawCenteredText(L"单人或本地双人合作：淘汰本关所有 AI 敌人即可前进", 480, 122, 19, Palette::Ink);
 
     drawTextAt(L"键盘操作", 104, 174, 26, Palette::Ink, true);
-    drawKeyCap(112, 228, 38, L"W");
-    drawKeyCap(68, 270, 38, L"A");
-    drawKeyCap(112, 270, 38, L"S");
-    drawKeyCap(156, 270, 38, L"D");
-    drawTextAt(L"移动角色", 218, 254, 20, Palette::Ink);
-    drawKeyCap(68, 340, 126, L"SPACE");
-    drawTextAt(L"放置水泡", 218, 346, 20, Palette::Ink);
-    drawKeyCap(68, 410, 126, L"P / Esc");
-    drawTextAt(L"暂停游戏", 218, 416, 20, Palette::Ink);
+    drawPanel(68, 220, 438, 278, RGB(239, 249, 250), 14, false);
+    drawTextAt(L"P1  WASD 移动 / Space 放泡", 88, 238, 18, Palette::Ink, true);
+    drawPanel(68, 294, 438, 352, RGB(242, 249, 238), 14, false);
+    drawTextAt(L"P2  方向键移动 / Enter 放泡", 88, 312, 18, Palette::Ink, true);
+    drawPanel(68, 368, 438, 426, RGB(249, 242, 235), 14, false);
+    drawTextAt(L"P / Esc  暂停游戏", 88, 386, 18, Palette::Ink, true);
 
     drawTextAt(L"游戏规则", 508, 174, 26, Palette::Ink, true);
     const std::array<std::wstring, 4> rules = {
@@ -1498,13 +1655,16 @@ void MoeBubbleGame::drawGameplay() const
     for (const WaterBubble& bubble : bubbles_) bubble.draw();
     for (const std::unique_ptr<Enemy>& enemy : enemies_) enemy->draw();
     if (player_.active()) player_.draw();
+    if (twoPlayerMode() && player2_.active()) player2_.draw();
     for (const WaterWave& wave : waves_) wave.draw();
     for (const StarParticle& particle : particles_) particle.draw();
 
     drawHud();
     drawPanel(24, 660, 684, 702, Palette::White, 12, false);
-    drawCenteredText(L"WASD / 方向键移动     Space 放泡     P / Esc 暂停",
-        354, 670, 17, Palette::Ink);
+    const wchar_t* controls = twoPlayerMode()
+        ? L"P1 WASD+Space    P2 方向键+Enter    P / Esc 暂停"
+        : L"WASD / 方向键移动     Space 放泡     P / Esc 暂停";
+    drawCenteredText(controls, 354, 670, twoPlayerMode() ? 15 : 17, Palette::Ink);
 }
 
 void MoeBubbleGame::drawHud() const
@@ -1512,6 +1672,59 @@ void MoeBubbleGame::drawHud() const
     drawPanel(GameConfig::HudLeft, GameConfig::HudTop,
         GameConfig::HudLeft + GameConfig::HudWidth,
         GameConfig::HudTop + GameConfig::HudHeight, Palette::White, 24, true);
+
+    if (twoPlayerMode())
+    {
+        drawCenteredText(L"双人合作", 822, 38, 22, Palette::AquaDark, true);
+        auto drawPlayerCard = [&](const Player& player, const wchar_t* playerLabel,
+            const wchar_t* controls, int top, COLORREF accent)
+        {
+            drawPanel(724, top, 920, top + 204, RGB(248, 250, 243), 16, false);
+            drawTextAt(playerLabel, 738, top + 14, 17, accent, true);
+            drawCenteredText(styleName(player.style()), 850, top + 14, 17,
+                styleColor(player.style()), true);
+
+            if (portraits_.loaded())
+            {
+                portraits_.draw(player.style(), PortraitSize::Hud, 738, top + 42);
+            }
+            else
+            {
+                drawChibiCharacter(player.style(), { 770.0f, static_cast<float>(top + 112) },
+                    0.82f, false, sceneTime_);
+            }
+
+            for (int index = 0; index < GameConfig::MaxPlayerLives; ++index)
+            {
+                drawHeart(810 + index * 27, top + 66, index < player.lives());
+            }
+            drawTextAt(L"容量  " + std::to_wstring(player.bubbleCapacity()),
+                808, top + 92, 14, Palette::Ink);
+            drawTextAt(L"范围  " + std::to_wstring(player.blastRange()),
+                808, top + 116, 14, Palette::Ink);
+            drawTextAt(L"速度  " + std::to_wstring(player.movementSpeed()),
+                808, top + 140, 14, Palette::Ink);
+            drawTextAt(L"护盾  " + std::to_wstring(player.shieldCharges()),
+                808, top + 164, 14, Palette::Ink);
+            drawCenteredText(player.active() ? controls : L"已阵亡 · 等待队友",
+                822, top + 181, 13, player.active() ? Palette::Ink : Palette::Danger, true);
+        };
+
+        drawPlayerCard(player_, L"P1", L"WASD + Space", 68, Palette::AquaDark);
+        drawPlayerCard(player2_, L"P2", L"方向键 + Enter", 282, Palette::PurpleDark);
+
+        drawPanel(730, 500, 914, 548, RGB(239, 249, 250), 12, false);
+        drawCenteredText(L"合作目标：淘汰全部敌人", 822, 514, 15, Palette::AquaDark, true);
+        drawTextAt(L"木箱 " + std::to_wstring(statistics_.cratesDestroyed)
+            + L"  道具 " + std::to_wstring(statistics_.powerUpsCollected),
+            734, 566, 15, Palette::Ink);
+        drawTextAt(L"敌人 " + std::to_wstring(statistics_.enemiesDefeated)
+            + L"  用时 " + formatTime(statistics_.elapsedTime),
+            734, 596, 15, Palette::Ink);
+        drawCenteredText(L"最高分  " + std::to_wstring(std::max(highScore_, score_)),
+            822, 650, 16, Palette::Honey, true);
+        return;
+    }
 
     if (portraits_.loaded())
     {
@@ -1579,7 +1792,8 @@ void MoeBubbleGame::drawLevelClearOverlay() const
     drawCenteredText(L"关卡完成！", 480, 148, 46, Palette::AquaDark, true);
     for (int index = 0; index < 3; ++index)
     {
-        const COLORREF starColor = index < std::min(3, player_.lives()) ? Palette::Honey : Palette::Shadow;
+        const COLORREF starColor = index < std::min(3, totalRemainingLives())
+            ? Palette::Honey : Palette::Shadow;
         setlinecolor(Palette::Ink);
         setfillcolor(starColor);
         POINT points[10]{};
@@ -1594,8 +1808,12 @@ void MoeBubbleGame::drawLevelClearOverlay() const
     }
     drawCenteredText(L"当前分数", 480, 304, 18, Palette::Ink);
     drawCenteredText(std::to_wstring(score_), 480, 334, 42, Palette::Honey, true);
-    drawCenteredText(L"剩余生命  " + std::to_wstring(player_.lives())
-        + L"    累计道具  " + std::to_wstring(statistics_.powerUpsCollected),
+    const std::wstring lifeText = twoPlayerMode()
+        ? L"P1 生命 " + std::to_wstring(player_.lives())
+            + L"    P2 生命 " + std::to_wstring(player2_.lives())
+        : L"剩余生命  " + std::to_wstring(player_.lives());
+    drawCenteredText(lifeText + L"    累计道具  "
+        + std::to_wstring(statistics_.powerUpsCollected),
         480, 392, 18, Palette::Ink);
     drawButton(292, 458, 668, 514, L"进入下一关", resultIndex_ == 0, Palette::Aqua);
     drawButton(292, 528, 668, 584, L"返回主菜单", resultIndex_ == 1, Palette::Coral);
@@ -1605,7 +1823,14 @@ void MoeBubbleGame::drawGameOverOverlay() const
 {
     drawPanel(220, 110, 740, 612, Palette::Paper, 30, true);
     drawCenteredText(L"挑战失败", 480, 146, 46, Palette::Coral, true);
-    if (portraits_.loaded())
+    if (twoPlayerMode() && portraits_.loaded())
+    {
+        portraits_.draw(player_.style(), PortraitSize::Hud,
+            380 - portraits_.width(PortraitSize::Hud) / 2, 216);
+        portraits_.draw(player2_.style(), PortraitSize::Hud,
+            520 - portraits_.width(PortraitSize::Hud) / 2, 216);
+    }
+    else if (portraits_.loaded())
     {
         portraits_.draw(player_.style(), PortraitSize::Hud,
             400 - portraits_.width(PortraitSize::Hud) / 2, 216);
@@ -1614,8 +1839,12 @@ void MoeBubbleGame::drawGameOverOverlay() const
     {
         drawChibiCharacter(player_.style(), { 400.0f, 290.0f }, 1.45f, false, sceneTime_);
     }
-    drawBubbleDecoration(566, 288, 34, Palette::Danger);
-    drawCenteredText(L"别灰心，调整路线再来一次吧！", 480, 374, 20, Palette::Ink);
+    if (!twoPlayerMode())
+    {
+        drawBubbleDecoration(566, 288, 34, Palette::Danger);
+    }
+    drawCenteredText(twoPlayerMode() ? L"两名玩家都阵亡了，重新配合再挑战！"
+        : L"别灰心，调整路线再来一次吧！", 480, 374, 20, Palette::Ink);
     drawCenteredText(L"最终分数  " + std::to_wstring(score_)
         + L"    到达第 " + std::to_wstring(level_) + L" 关", 480, 416, 20, Palette::Honey, true);
     drawButton(292, 468, 668, 524, L"重新挑战", resultIndex_ == 0, Palette::Aqua);
@@ -1626,7 +1855,8 @@ void MoeBubbleGame::drawVictoryOverlay() const
 {
     for (const StarParticle& particle : particles_) particle.draw();
     drawCenteredText(L"全部通关！", 480, 62, 58, Palette::AquaDark, true);
-    drawCenteredText(L"你已经成为真正的泡泡达人", 480, 132, 21, Palette::Ink);
+    drawCenteredText(twoPlayerMode() ? L"默契配合完成三关挑战"
+        : L"你已经成为真正的泡泡达人", 480, 132, 21, Palette::Ink);
     const std::array<CharacterStyle, 4> styles = {
         CharacterStyle::Bear, CharacterStyle::Rabbit, CharacterStyle::Cat, CharacterStyle::Dog
     };

@@ -179,6 +179,26 @@ private:
     std::array<bool, 256> pressedSinceLastPoll_{};
 };
 
+// 每名本地玩家拥有独立的移动按键。放置水泡属于一次性动作，仍由场景输入处理。
+struct PlayerControls
+{
+    int up = 'W';
+    int down = 'S';
+    int left = 'A';
+    int right = 'D';
+    int alternateUp = 0;
+    int alternateDown = 0;
+    int alternateLeft = 0;
+    int alternateRight = 0;
+};
+
+// 游戏模式只影响玩家数量、控制方案和 HUD，关卡及敌人规则保持复用。
+enum class GameMode
+{
+    SinglePlayer,
+    TwoPlayer
+};
+
 // 可选角色外观；实际数值由 CharacterProfile 集中配置。
 enum class CharacterStyle
 {

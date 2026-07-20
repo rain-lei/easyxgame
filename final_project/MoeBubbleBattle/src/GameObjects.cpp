@@ -322,9 +322,9 @@ bool Character::move(const Vec2& direction, float deltaTime, const GameMap& map,
     return moved;
 }
 
-Player::Player()
+Player::Player(int id)
     // 可见精灵约占满 44 像素通道，但碰撞只用 20 像素脚底盒，帽子和背包不会卡墙。
-    : Character(1, cellCenter({ 1, 1 }), 10.0f, 148.0f)
+    : Character(id, cellCenter({ 1, 1 }), 10.0f, 148.0f)
 {
 }
 
@@ -399,29 +399,34 @@ void Player::drawSpriteFrame() const
 }
 
 void Player::handleMovement(const InputManager& input, float deltaTime,
-    const GameMap& map, const std::vector<WaterBubble>& bubbles)
+    const GameMap& map, const std::vector<WaterBubble>& bubbles,
+    const PlayerControls& controls)
 {
     // down() 保证长按连续移动；pressed() 补获两帧之间完成的轻点，防止快速电脑漏输入。
     const auto movementKeyActive = [&](int key)
     {
-        return input.down(key) || input.pressed(key);
+        return key != 0 && (input.down(key) || input.pressed(key));
+    };
+    const auto directionActive = [&](int primary, int alternate)
+    {
+        return movementKeyActive(primary) || movementKeyActive(alternate);
     };
 
     // 键盘只产生期望方向，真正位移仍交给 Character::move 检查地图和水泡碰撞。
     Vec2 requested{};
-    if (movementKeyActive('A') || movementKeyActive(VK_LEFT))
+    if (directionActive(controls.left, controls.alternateLeft))
     {
         requested.x -= 1.0f;
     }
-    if (movementKeyActive('D') || movementKeyActive(VK_RIGHT))
+    if (directionActive(controls.right, controls.alternateRight))
     {
         requested.x += 1.0f;
     }
-    if (movementKeyActive('W') || movementKeyActive(VK_UP))
+    if (directionActive(controls.up, controls.alternateUp))
     {
         requested.y -= 1.0f;
     }
-    if (movementKeyActive('S') || movementKeyActive(VK_DOWN))
+    if (directionActive(controls.down, controls.alternateDown))
     {
         requested.y += 1.0f;
     }
@@ -556,7 +561,8 @@ void Player::prepareForLevel(const GridPos& spawnCell)
     walking_ = false;
     animationTime_ = 0.0f;
     walkAnimationTime_ = 0.0f;
-    active_ = true;
+    // 已经耗尽生命的合作玩家不会在换关时无条件复活，另一名玩家仍可继续挑战。
+    active_ = lives_ > 0;
 }
 
 bool Player::takeDamage()

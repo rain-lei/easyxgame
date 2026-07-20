@@ -73,13 +73,14 @@ protected:
 class Player final : public Character
 {
 public:
-    Player();
+    explicit Player(int id = 1);
 
     void update(float deltaTime) override;
     void draw() const override;
     bool loadSpriteSheet(const std::filesystem::path& imagePath);
     void handleMovement(const InputManager& input, float deltaTime,
-        const GameMap& map, const std::vector<WaterBubble>& bubbles);
+        const GameMap& map, const std::vector<WaterBubble>& bubbles,
+        const PlayerControls& controls);
     void resetForNewGame(CharacterStyle style);
     void prepareForLevel(const GridPos& spawnCell);
 

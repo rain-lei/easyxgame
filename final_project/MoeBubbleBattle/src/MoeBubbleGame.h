@@ -98,7 +98,8 @@ private:
     ItemIconAtlas itemIcons_;
     EnemySpriteAtlas enemySprites_;
     GameMap map_;
-    Player player_;
+    Player player_{ 1 };
+    Player player2_{ 2 };
     // 动态对象使用 STL 容器；Enemy 通过基类智能指针实现异构多态和 RAII。
     std::vector<std::unique_ptr<Enemy>> enemies_;
     std::vector<WaterBubble> bubbles_;
@@ -112,7 +113,11 @@ private:
     SceneState scene_ = SceneState::MainMenu;
     SceneState instructionReturnScene_ = SceneState::MainMenu;
     SceneState exitReturnScene_ = SceneState::MainMenu;
+    GameMode gameMode_ = GameMode::SinglePlayer;
     CharacterStyle selectedStyle_ = CharacterStyle::Bear;
+    CharacterStyle selectedStyle2_ = CharacterStyle::Rabbit;
+    bool coopCharacterSelection_ = false;
+    int selectingPlayer_ = 1;
     bool running_ = true;
     bool windowOpened_ = false;
     int mouseX_ = -1;
@@ -156,7 +161,7 @@ private:
     void startNewGame();
     void setupLevel(int level, bool restoreLevelScore = false);
     void restartCurrentLevel();
-    void tryPlaceBubble();
+    void tryPlaceBubble(Player& player);
     void updatePlaying(float deltaTime);
     void updateBubbles(float deltaTime);
     void explodeBubble(std::size_t bubbleIndex);
@@ -168,6 +173,9 @@ private:
     void completeLevel();
     void finishGame(bool victory);
     void cleanupInactiveObjects();
+    bool twoPlayerMode() const { return gameMode_ == GameMode::TwoPlayer; }
+    bool allPlayersDefeated() const;
+    int totalRemainingLives() const;
 
     // 各场景绘制函数只读取状态，不在绘制阶段修改游戏数据。
     void drawBackground() const;
