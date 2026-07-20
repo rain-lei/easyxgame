@@ -97,6 +97,9 @@ private:
     PortraitAtlas portraits_;
     ItemIconAtlas itemIcons_;
     EnemySpriteAtlas enemySprites_;
+    // 所有场景先绘制到固定 960×720 逻辑画布，再按窗口尺寸等比呈现。
+    // 这样切换全屏不会改变游戏坐标、碰撞尺寸或 UI 鼠标热区。
+    IMAGE frameBuffer_{ GameConfig::WindowWidth, GameConfig::WindowHeight };
     GameMap map_;
     Player player_{ 1 };
     Player player2_{ 2 };
@@ -120,6 +123,13 @@ private:
     int selectingPlayer_ = 1;
     bool running_ = true;
     bool windowOpened_ = false;
+    bool fullscreen_ = false;
+    RECT windowedRect_{};
+    bool hasWindowedRect_ = false;
+    int viewportLeft_ = 0;
+    int viewportTop_ = 0;
+    int viewportWidth_ = GameConfig::WindowWidth;
+    int viewportHeight_ = GameConfig::WindowHeight;
     int mouseX_ = -1;
     int mouseY_ = -1;
     bool mouseLeftPressed_ = false;
@@ -146,6 +156,11 @@ private:
     void processInput();
     void update(float deltaTime);
     void render() const;
+    void renderFrame();
+    void presentFrame();
+    void toggleFullscreen();
+    void updateViewport();
+    void updateLogicalMousePosition(int clientX, int clientY);
     void transitionTo(SceneState state);
 
     // 各场景分别处理键盘和鼠标，避免一个超长输入分支。

@@ -410,8 +410,7 @@ int MoeBubbleGame::run()
         input_.poll();
         processInput();
         update(deltaTime);
-        render();
-        FlushBatchDraw();
+        renderFrame();
 
         const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - frameStart).count();
@@ -432,11 +431,12 @@ int MoeBubbleGame::captureReportScreenshots(const std::filesystem::path& outputD
 
     auto capture = [&](const wchar_t* filename)
     {
-        // 截图前强制刷新双缓冲，确保 saveimage 取得的是完整的一帧而非上帧残留。
+        // 报告图直接保存固定尺寸逻辑画布，不受当前桌面分辨率或全屏状态影响。
+        SetWorkingImage(&frameBuffer_);
         render();
-        FlushBatchDraw();
+        SetWorkingImage(nullptr);
         const std::filesystem::path path = outputDirectory / filename;
-        saveimage(path.c_str());
+        saveimage(path.c_str(), &frameBuffer_);
     };
 
     scene_ = SceneState::MainMenu;
@@ -489,6 +489,7 @@ void MoeBubbleGame::openWindow()
     windowOpened_ = true;
     SetWindowTextW(GetHWnd(), L"萌泡大作战 - 单人 / 本地双人合作");
     ImmAssociateContext(GetHWnd(), HIMC{});
+    updateViewport();
     setbkcolor(Palette::Paper);
     setbkmode(TRANSPARENT);
     // 图片与音频都从 EXE 目录向下定位；复制整个输出目录后仍能直接运行，
@@ -522,8 +523,7 @@ void MoeBubbleGame::processWindowMessages()
     {
         if (message.message >= WM_MOUSEFIRST && message.message <= WM_MOUSELAST)
         {
-            mouseX_ = message.x;
-            mouseY_ = message.y;
+            updateLogicalMousePosition(message.x, message.y);
             if (message.message == WM_LBUTTONDOWN)
             {
                 mouseLeftPressed_ = true;
@@ -533,11 +533,21 @@ void MoeBubbleGame::processWindowMessages()
         {
             running_ = false;
         }
+        else if (message.message == WM_SIZE)
+        {
+            updateViewport();
+        }
     }
 }
 
 void MoeBubbleGame::processInput()
 {
+    // F11 属于全局显示控制，在任意场景都可切换，且不会影响当前游戏进度。
+    if (input_.pressed(VK_F11))
+    {
+        toggleFullscreen();
+    }
+
     // 状态机将输入分派到当前场景，未激活界面不会误响应按键或鼠标。
     switch (scene_)
     {
@@ -551,6 +561,124 @@ void MoeBubbleGame::processInput()
     case SceneState::Victory: handleResultInput(); break;
     case SceneState::ExitConfirm: handleExitConfirmInput(); break;
     }
+}
+
+void MoeBubbleGame::renderFrame()
+{
+    // 游戏逻辑始终绘制到固定分辨率画布，全屏只改变最后一步的显示缩放。
+    SetWorkingImage(&frameBuffer_);
+    render();
+    SetWorkingImage(nullptr);
+    presentFrame();
+}
+
+void MoeBubbleGame::presentFrame()
+{
+    // 缩放同样写入 EasyX 的后台画布，完成整帧后再统一提交到窗口。
+    // 不直接写窗口 DC，可避免其 WM_PAINT 与游戏刷新交错产生连续频闪。
+    const HDC target = GetImageHDC();
+    if (target == nullptr)
+    {
+        return;
+    }
+    if (fullscreen_)
+    {
+        RECT client{};
+        GetClientRect(GetHWnd(), &client);
+        FillRect(target, &client, static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
+        SetStretchBltMode(target, HALFTONE);
+        SetBrushOrgEx(target, viewportLeft_, viewportTop_, nullptr);
+        StretchBlt(target, viewportLeft_, viewportTop_, viewportWidth_, viewportHeight_,
+            GetImageHDC(&frameBuffer_), 0, 0, GameConfig::WindowWidth, GameConfig::WindowHeight,
+            SRCCOPY);
+    }
+    else
+    {
+        putimage(0, 0, &frameBuffer_);
+    }
+    FlushBatchDraw();
+}
+
+void MoeBubbleGame::updateViewport()
+{
+    if (!windowOpened_)
+    {
+        return;
+    }
+    RECT client{};
+    GetClientRect(GetHWnd(), &client);
+    const int clientWidth = std::max(1L, client.right - client.left);
+    const int clientHeight = std::max(1L, client.bottom - client.top);
+    const double scale = std::min(
+        static_cast<double>(clientWidth) / GameConfig::WindowWidth,
+        static_cast<double>(clientHeight) / GameConfig::WindowHeight);
+    viewportWidth_ = std::max(1, static_cast<int>(std::lround(GameConfig::WindowWidth * scale)));
+    viewportHeight_ = std::max(1, static_cast<int>(std::lround(GameConfig::WindowHeight * scale)));
+    viewportLeft_ = (clientWidth - viewportWidth_) / 2;
+    viewportTop_ = (clientHeight - viewportHeight_) / 2;
+}
+
+void MoeBubbleGame::updateLogicalMousePosition(int clientX, int clientY)
+{
+    if (clientX < viewportLeft_ || clientY < viewportTop_
+        || clientX >= viewportLeft_ + viewportWidth_
+        || clientY >= viewportTop_ + viewportHeight_)
+    {
+        mouseX_ = -1;
+        mouseY_ = -1;
+        return;
+    }
+    mouseX_ = std::clamp((clientX - viewportLeft_) * GameConfig::WindowWidth
+        / std::max(1, viewportWidth_), 0, GameConfig::WindowWidth - 1);
+    mouseY_ = std::clamp((clientY - viewportTop_) * GameConfig::WindowHeight
+        / std::max(1, viewportHeight_), 0, GameConfig::WindowHeight - 1);
+}
+
+void MoeBubbleGame::toggleFullscreen()
+{
+    // EasyX 的后台画布大小在 initgraph 时确定。切换时重建同一个图形窗口，
+    // 使全屏画布与屏幕尺寸一致，后续缩放仍能走稳定的批量绘制流程。
+    if (!fullscreen_)
+    {
+        GetWindowRect(GetHWnd(), &windowedRect_);
+        hasWindowedRect_ = true;
+        const int screenWidth = GetSystemMetrics(SM_CXSCREEN);
+        const int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+
+        EndBatchDraw();
+        closegraph();
+        initgraph(screenWidth, screenHeight, EW_NOCLOSE);
+        const HWND window = GetHWnd();
+        const DWORD style = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_STYLE));
+        const DWORD extendedStyle = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_EXSTYLE));
+        SetWindowLongPtrW(window, GWL_STYLE,
+            style & ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX
+                | WS_MAXIMIZEBOX | WS_SYSMENU));
+        SetWindowLongPtrW(window, GWL_EXSTYLE,
+            extendedStyle & ~(WS_EX_DLGMODALFRAME | WS_EX_CLIENTEDGE
+                | WS_EX_STATICEDGE | WS_EX_WINDOWEDGE));
+        SetWindowPos(window, HWND_TOP, 0, 0, screenWidth, screenHeight,
+            SWP_NOOWNERZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+        fullscreen_ = true;
+    }
+    else
+    {
+        EndBatchDraw();
+        closegraph();
+        initgraph(GameConfig::WindowWidth, GameConfig::WindowHeight, EW_NOCLOSE);
+        fullscreen_ = false;
+        if (hasWindowedRect_)
+        {
+            const int width = windowedRect_.right - windowedRect_.left;
+            const int height = windowedRect_.bottom - windowedRect_.top;
+            SetWindowPos(GetHWnd(), HWND_TOP, windowedRect_.left, windowedRect_.top,
+                width, height, SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
+        }
+    }
+    SetWindowTextW(GetHWnd(), L"萌泡大作战 - 单人 / 本地双人合作");
+    ImmAssociateContext(GetHWnd(), HIMC{});
+    updateViewport();
+    BeginBatchDraw();
 }
 
 void MoeBubbleGame::update(float deltaTime)
@@ -1498,6 +1626,9 @@ void MoeBubbleGame::drawMainMenu() const
     drawBackground();
     drawPanel(24, 20, 214, 58, Palette::White, 16, false);
     drawCenteredText(L"单人 / 本地双人", 119, 28, 18, Palette::Ink, true);
+    drawPanel(746, 20, 936, 58, Palette::White, 16, false);
+    drawCenteredText(fullscreen_ ? L"F11 返回窗口" : L"F11 全屏显示",
+        841, 28, 17, Palette::Ink, true);
 
     drawCenteredText(L"萌泡大作战", 480, 72, 60, Palette::AquaDark, true);
     drawCenteredText(L"放置水泡 · 打通三关 · 成为泡泡达人", 480, 142, 20, Palette::Ink);
@@ -1599,6 +1730,8 @@ void MoeBubbleGame::drawInstructions() const
     drawTextAt(L"P2  方向键移动 / Enter 放泡", 88, 312, 18, Palette::Ink, true);
     drawPanel(68, 368, 438, 426, RGB(249, 242, 235), 14, false);
     drawTextAt(L"P / Esc  暂停游戏", 88, 386, 18, Palette::Ink, true);
+    drawPanel(68, 442, 438, 500, RGB(242, 243, 250), 14, false);
+    drawTextAt(L"F11  全屏 / 窗口显示", 88, 460, 18, Palette::Ink, true);
 
     drawTextAt(L"游戏规则", 508, 174, 26, Palette::Ink, true);
     const std::array<std::wstring, 4> rules = {
@@ -1662,9 +1795,9 @@ void MoeBubbleGame::drawGameplay() const
     drawHud();
     drawPanel(24, 660, 684, 702, Palette::White, 12, false);
     const wchar_t* controls = twoPlayerMode()
-        ? L"P1 WASD+Space    P2 方向键+Enter    P / Esc 暂停"
-        : L"WASD / 方向键移动     Space 放泡     P / Esc 暂停";
-    drawCenteredText(controls, 354, 670, twoPlayerMode() ? 15 : 17, Palette::Ink);
+        ? L"P1 WASD+Space  P2 方向键+Enter  P/Esc 暂停  F11 全屏"
+        : L"WASD / 方向键移动   Space 放泡   P/Esc 暂停   F11 全屏";
+    drawCenteredText(controls, 354, 670, twoPlayerMode() ? 14 : 15, Palette::Ink);
 }
 
 void MoeBubbleGame::drawHud() const
