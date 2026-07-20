@@ -40,7 +40,10 @@ namespace
         int sourceWidth, int sourceHeight, int destinationX, int destinationY,
         int destinationWidth, int destinationHeight)
     {
-        DWORD* destination = GetImageBuffer();
+        // SetWorkingImage 可能把本帧目标切换为全屏逻辑画布；必须显式取得当前
+        // 工作图像，不能继续向 EasyX 默认窗口缓冲写像素，否则整帧提交时会被覆盖。
+        IMAGE* workingImage = GetWorkingImage();
+        DWORD* destination = GetImageBuffer(workingImage);
         DWORD* source = GetImageBuffer(const_cast<IMAGE*>(&image));
         if (destination == nullptr || source == nullptr || destinationWidth <= 0 || destinationHeight <= 0)
         {
@@ -49,8 +52,8 @@ namespace
 
         // 源图使用四字节 BGRA，EasyX 目标缓冲采用相同的低三字节颜色布局。
         // 最近邻采样足以处理像素尺寸固定的 UI/精灵，并避免运行时创建临时 IMAGE。
-        const int canvasWidth = getwidth();
-        const int canvasHeight = getheight();
+        const int canvasWidth = workingImage != nullptr ? workingImage->getwidth() : getwidth();
+        const int canvasHeight = workingImage != nullptr ? workingImage->getheight() : getheight();
         const int imageWidth = image.getwidth();
         for (int localY = 0; localY < destinationHeight; ++localY)
         {

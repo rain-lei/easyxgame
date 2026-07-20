@@ -457,6 +457,12 @@ int MoeBubbleGame::captureReportScreenshots(const std::filesystem::path& outputD
     powerUps_.emplace_back(GridPos{ 1, 9 }, PowerUpType::Shield, &itemIcons_);
     capture(L"game_level1_items.png");
 
+    // 自动走一次真实的全屏切换路径，再保存逻辑画面。该图专门回归验证
+    // 玩家、敌人和道具图集在 F11 切换后仍然有效。
+    toggleFullscreen();
+    capture(L"game_fullscreen_assets.png");
+    toggleFullscreen();
+
     gameMode_ = GameMode::TwoPlayer;
     selectedStyle_ = CharacterStyle::Bear;
     selectedStyle2_ = CharacterStyle::Rabbit;
@@ -492,25 +498,32 @@ void MoeBubbleGame::openWindow()
     updateViewport();
     setbkcolor(Palette::Paper);
     setbkmode(TRANSPARENT);
+    reloadGraphicsAssets();
+    // 后续所有场景先画到后台缓冲，再由主循环一次性提交，减少 EasyX 闪烁。
+    BeginBatchDraw();
+}
+
+void MoeBubbleGame::reloadGraphicsAssets()
+{
     // 图片与音频都从 EXE 目录向下定位；复制整个输出目录后仍能直接运行，
     // 也避免开发机盘符或工程位置进入资源路径。
     wchar_t executablePath[MAX_PATH]{};
     GetModuleFileNameW(nullptr, executablePath, MAX_PATH);
-    const std::filesystem::path portraitPath = std::filesystem::path(executablePath).parent_path()
-        / L"assets" / L"concepts" / L"chibi_character_concepts.png";
+    const std::filesystem::path assetDirectory = std::filesystem::path(executablePath).parent_path()
+        / L"assets";
+    const std::filesystem::path portraitPath = assetDirectory
+        / L"concepts" / L"chibi_character_concepts.png";
     portraits_.load(portraitPath);
-    const std::filesystem::path spritePath = std::filesystem::path(executablePath).parent_path()
-        / L"assets" / L"sprites" / L"player_walk_sheet.png";
+    const std::filesystem::path spritePath = assetDirectory
+        / L"sprites" / L"player_walk_sheet.png";
     player_.loadSpriteSheet(spritePath);
     player2_.loadSpriteSheet(spritePath);
-    const std::filesystem::path itemIconPath = std::filesystem::path(executablePath).parent_path()
-        / L"assets" / L"ui" / L"item_icons_v1.png";
+    const std::filesystem::path itemIconPath = assetDirectory
+        / L"ui" / L"item_icons_v1.png";
     itemIcons_.load(itemIconPath);
-    const std::filesystem::path enemySpritePath = std::filesystem::path(executablePath).parent_path()
-        / L"assets" / L"sprites" / L"enemy_sprites_v1.png";
+    const std::filesystem::path enemySpritePath = assetDirectory
+        / L"sprites" / L"enemy_sprites_v1.png";
     enemySprites_.load(enemySpritePath);
-    // 后续所有场景先画到后台缓冲，再由主循环一次性提交，减少 EasyX 闪烁。
-    BeginBatchDraw();
 }
 
 void MoeBubbleGame::processWindowMessages()
@@ -574,29 +587,36 @@ void MoeBubbleGame::renderFrame()
 
 void MoeBubbleGame::presentFrame()
 {
-    // 缩放同样写入 EasyX 的后台画布，完成整帧后再统一提交到窗口。
-    // 不直接写窗口 DC，可避免其 WM_PAINT 与游戏刷新交错产生连续频闪。
-    const HDC target = GetImageHDC();
-    if (target == nullptr)
+    if (!fullscreen_)
+    {
+        putimage(0, 0, &frameBuffer_);
+        FlushBatchDraw();
+        return;
+    }
+
+    // 先在内存缓冲中完成黑边填充和等比缩放，屏幕只接收一次快速 BitBlt。
+    // 相比直接对窗口先清黑再 StretchBlt，不会暴露中间黑帧，也不需要 closegraph。
+    const HDC composite = GetImageHDC(&fullscreenBuffer_);
+    const HWND window = GetHWnd();
+    if (composite == nullptr || window == nullptr)
     {
         return;
     }
-    if (fullscreen_)
+    RECT fullArea{ 0, 0, fullscreenBuffer_.getwidth(), fullscreenBuffer_.getheight() };
+    FillRect(composite, &fullArea, static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
+    SetStretchBltMode(composite, HALFTONE);
+    SetBrushOrgEx(composite, viewportLeft_, viewportTop_, nullptr);
+    StretchBlt(composite, viewportLeft_, viewportTop_, viewportWidth_, viewportHeight_,
+        GetImageHDC(&frameBuffer_), 0, 0, GameConfig::WindowWidth, GameConfig::WindowHeight,
+        SRCCOPY);
+
+    const HDC target = GetDC(window);
+    if (target != nullptr)
     {
-        RECT client{};
-        GetClientRect(GetHWnd(), &client);
-        FillRect(target, &client, static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
-        SetStretchBltMode(target, HALFTONE);
-        SetBrushOrgEx(target, viewportLeft_, viewportTop_, nullptr);
-        StretchBlt(target, viewportLeft_, viewportTop_, viewportWidth_, viewportHeight_,
-            GetImageHDC(&frameBuffer_), 0, 0, GameConfig::WindowWidth, GameConfig::WindowHeight,
-            SRCCOPY);
+        BitBlt(target, 0, 0, fullscreenBuffer_.getwidth(), fullscreenBuffer_.getheight(),
+            composite, 0, 0, SRCCOPY);
+        ReleaseDC(window, target);
     }
-    else
-    {
-        putimage(0, 0, &frameBuffer_);
-    }
-    FlushBatchDraw();
 }
 
 void MoeBubbleGame::updateViewport()
@@ -616,6 +636,11 @@ void MoeBubbleGame::updateViewport()
     viewportHeight_ = std::max(1, static_cast<int>(std::lround(GameConfig::WindowHeight * scale)));
     viewportLeft_ = (clientWidth - viewportWidth_) / 2;
     viewportTop_ = (clientHeight - viewportHeight_) / 2;
+    if (fullscreen_ && (fullscreenBuffer_.getwidth() != clientWidth
+        || fullscreenBuffer_.getheight() != clientHeight))
+    {
+        fullscreenBuffer_.Resize(clientWidth, clientHeight);
+    }
 }
 
 void MoeBubbleGame::updateLogicalMousePosition(int clientX, int clientY)
@@ -636,26 +661,27 @@ void MoeBubbleGame::updateLogicalMousePosition(int clientX, int clientY)
 
 void MoeBubbleGame::toggleFullscreen()
 {
-    // EasyX 的后台画布大小在 initgraph 时确定。切换时重建同一个图形窗口，
-    // 使全屏画布与屏幕尺寸一致，后续缩放仍能走稳定的批量绘制流程。
+    const HWND window = GetHWnd();
+    if (window == nullptr)
+    {
+        return;
+    }
+
+    // 只改变现有 HWND 的边框和尺寸，不销毁 EasyX 图形环境，因此 PNG 精灵的
+    // 透明像素缓冲、场景对象以及当前音乐均可原样保留。
     if (!fullscreen_)
     {
-        GetWindowRect(GetHWnd(), &windowedRect_);
-        hasWindowedRect_ = true;
+        windowedStyle_ = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_STYLE));
+        windowedExtendedStyle_ = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_EXSTYLE));
+        windowedPlacement_.length = sizeof(WINDOWPLACEMENT);
+        GetWindowPlacement(window, &windowedPlacement_);
         const int screenWidth = GetSystemMetrics(SM_CXSCREEN);
         const int screenHeight = GetSystemMetrics(SM_CYSCREEN);
-
-        EndBatchDraw();
-        closegraph();
-        initgraph(screenWidth, screenHeight, EW_NOCLOSE);
-        const HWND window = GetHWnd();
-        const DWORD style = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_STYLE));
-        const DWORD extendedStyle = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_EXSTYLE));
         SetWindowLongPtrW(window, GWL_STYLE,
-            style & ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX
+            windowedStyle_ & ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX
                 | WS_MAXIMIZEBOX | WS_SYSMENU));
         SetWindowLongPtrW(window, GWL_EXSTYLE,
-            extendedStyle & ~(WS_EX_DLGMODALFRAME | WS_EX_CLIENTEDGE
+            windowedExtendedStyle_ & ~(WS_EX_DLGMODALFRAME | WS_EX_CLIENTEDGE
                 | WS_EX_STATICEDGE | WS_EX_WINDOWEDGE));
         SetWindowPos(window, HWND_TOP, 0, 0, screenWidth, screenHeight,
             SWP_NOOWNERZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
@@ -663,22 +689,15 @@ void MoeBubbleGame::toggleFullscreen()
     }
     else
     {
-        EndBatchDraw();
-        closegraph();
-        initgraph(GameConfig::WindowWidth, GameConfig::WindowHeight, EW_NOCLOSE);
+        SetWindowLongPtrW(window, GWL_STYLE, windowedStyle_);
+        SetWindowLongPtrW(window, GWL_EXSTYLE, windowedExtendedStyle_);
+        SetWindowPlacement(window, &windowedPlacement_);
+        SetWindowPos(window, nullptr, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER
+                | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
         fullscreen_ = false;
-        if (hasWindowedRect_)
-        {
-            const int width = windowedRect_.right - windowedRect_.left;
-            const int height = windowedRect_.bottom - windowedRect_.top;
-            SetWindowPos(GetHWnd(), HWND_TOP, windowedRect_.left, windowedRect_.top,
-                width, height, SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
-        }
     }
-    SetWindowTextW(GetHWnd(), L"萌泡大作战 - 单人 / 本地双人合作");
-    ImmAssociateContext(GetHWnd(), HIMC{});
     updateViewport();
-    BeginBatchDraw();
 }
 
 void MoeBubbleGame::update(float deltaTime)

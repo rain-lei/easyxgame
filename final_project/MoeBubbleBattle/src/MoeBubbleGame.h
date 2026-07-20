@@ -100,6 +100,8 @@ private:
     // 所有场景先绘制到固定 960×720 逻辑画布，再按窗口尺寸等比呈现。
     // 这样切换全屏不会改变游戏坐标、碰撞尺寸或 UI 鼠标热区。
     IMAGE frameBuffer_{ GameConfig::WindowWidth, GameConfig::WindowHeight };
+    // 全屏合成缓冲先完成黑边和缩放，随后一次 BitBlt 提交，防止逐步绘制造成频闪。
+    IMAGE fullscreenBuffer_;
     GameMap map_;
     Player player_{ 1 };
     Player player2_{ 2 };
@@ -124,8 +126,9 @@ private:
     bool running_ = true;
     bool windowOpened_ = false;
     bool fullscreen_ = false;
-    RECT windowedRect_{};
-    bool hasWindowedRect_ = false;
+    DWORD windowedStyle_ = 0;
+    DWORD windowedExtendedStyle_ = 0;
+    WINDOWPLACEMENT windowedPlacement_{ sizeof(WINDOWPLACEMENT) };
     int viewportLeft_ = 0;
     int viewportTop_ = 0;
     int viewportWidth_ = GameConfig::WindowWidth;
@@ -152,6 +155,7 @@ private:
 
     // 主循环基础阶段：输入 → 更新 → 清理 → 绘制。
     void openWindow();
+    void reloadGraphicsAssets();
     void processWindowMessages();
     void processInput();
     void update(float deltaTime);
